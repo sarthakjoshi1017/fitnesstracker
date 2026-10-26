@@ -15,9 +15,9 @@ FitTrack Pro is a fitness and nutrition tracking app for people who want to unde
 ## Implemented workflows
 
 - Browse a responsive dashboard with a weekly activity summary, food intake, macro totals, and weight trend.
-- Record workouts, meals, and bodyweight with client-side validation and success/error feedback.
+- Record workouts and bodyweight with client-side validation and success/error feedback. Food logging asks for a food and quantity, then scales the reference calories and macros automatically; custom foods can be entered per serving.
 - Filter workout history and nutrition entries; search workouts and curated meal ideas.
-- Build a meal from a small curated set of familiar foods and log it to the nutrition diary. Nutrition values are approximate.
+- Build a meal from a curated set of familiar foods and log a chosen quantity to the nutrition diary. Nutrition values are approximate.
 - Review bodyweight history and complete/dismiss local insight cards.
 - Register and sign in through the Express API. Authenticated workout, food, and weight entries are stored in PostgreSQL and scoped to the signed-in user.
 - Use rule-based backend helpers for session volume, Epley estimated 1RM, moving averages, starting calorie estimates, plateau checks, and data-quality summaries.

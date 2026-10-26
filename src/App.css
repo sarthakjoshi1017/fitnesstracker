@@ -322,6 +322,26 @@ h1, h2, h3, p { margin-top: 0; }
 .account-switch button { padding: 2px; color: #7569df; background: transparent; font-size: inherit; font-weight: 600; }
 .account-security { display: flex; align-items: center; justify-content: center; gap: 5px; margin-top: 11px; color: #78a187; font-size: 8px; }
 .account-security svg { color: #69aa82; }
+.food-quantity-modal { width: min(500px, 100%); }
+.food-quantity-modal .modal-description { margin: -7px 0 2px; }
+.food-quantity-modal form { gap: 11px; }
+.reference-serving { display: flex; align-items: center; gap: 7px; min-height: 34px; padding: 7px 9px; color: #807d97; border: 1px solid #efedf8; background: #faf9ff; border-radius: 7px; font-size: 9px; }
+.reference-serving svg { color: #877be9; flex: 0 0 auto; }
+.reference-serving strong { color: #5c5875; font-weight: 600; }
+.approximate-label { margin-left: auto; padding: 4px 6px; color: #9b8b62; background: #fbf6e9; border-radius: 5px; font-size: 7px; }
+.quantity-form-row { grid-template-columns: 1fr 1fr; }
+.nutrition-calculation { padding: 12px; background: #f8f7ff; border: 1px solid #ece9ff; border-radius: 9px; }
+.calculation-heading { display: flex; justify-content: space-between; gap: 8px; color: #817d98; font-size: 8px; }
+.calculation-heading span:first-child { color: #5f5b78; font-size: 9px; font-weight: 700; }
+.calculation-calories { display: flex; align-items: baseline; gap: 5px; margin-top: 9px; color: #7970dc; }
+.calculation-calories svg { align-self: center; margin-right: 2px; }
+.calculation-calories strong { color: #3c3d49; font: 700 22px Manrope, sans-serif; }
+.calculation-calories > span { color: #888995; font-size: 9px; }
+.calculation-macros { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; padding-top: 9px; margin-top: 8px; border-top: 1px solid #eae8f5; }
+.calculation-macros > span { display: flex; align-items: center; gap: 4px; color: #777884; font-size: 8px; white-space: nowrap; }
+.calculation-macros strong { margin-left: auto; color: #4b4c57; font-size: 8px; }
+.custom-nutrition-fields { gap: 8px; }
+.custom-nutrition-fields label span { font-size: 7px; }
 .toast { position: fixed; right: 24px; bottom: 22px; z-index: 70; display: flex; align-items: center; gap: 9px; min-width: 240px; padding: 11px 12px; color: #4e5f54; background: #fff; border: 1px solid #e6f0e9; border-radius: 9px; box-shadow: 0 8px 25px #25253b18; font-size: 10px; animation: rise-in .2s ease-out; }
 .toast-check { display: grid; place-items: center; width: 20px; height: 20px; color: #5da57c; background: #edf8f1; border-radius: 50%; }
 .toast button { display: grid; place-items: center; margin-left: auto; color: #a3a4ad; background: transparent; }

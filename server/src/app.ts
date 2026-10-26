@@ -182,6 +182,9 @@ router.post('/meals', requireAuth, asyncRoute(async (request, response) => {
   const input = z.object({
     name: z.string().trim().min(1).max(120),
     type: z.enum(['BREAKFAST', 'LUNCH', 'DINNER', 'SNACK']).default('SNACK'),
+    quantity: z.number().positive().max(100).default(1),
+    servingUnit: z.string().trim().min(1).max(40).default('serving'),
+    servingDescription: z.string().trim().min(1).max(80).default('1 serving'),
     calories: z.number().int().min(0).max(10000),
     proteinG: z.number().min(0).max(1000),
     carbsG: z.number().min(0).max(1000),

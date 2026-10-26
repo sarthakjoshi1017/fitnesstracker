@@ -17,7 +17,8 @@ ChartJS.register(ArcElement, CategoryScale, Filler, Legend, LinearScale, LineEle
 
 type Section = 'Overview' | 'Workouts' | 'Nutrition' | 'Progress' | 'Intelligence' | 'Meal builder'
 type Workout = { id: string; title: string; focus: string; date: string; duration: number; volume: number; complete: boolean }
-type Meal = { id: string; name: string; type: string; time: string; calories: number; protein: number; carbs: number; fat: number }
+type Meal = { id: string; name: string; type: string; time: string; calories: number; protein: number; carbs: number; fat: number; quantity?: number; servingUnit?: string; serving?: string }
+type FoodOption = { name: string; description: string; calories: number; protein: number; carbs: number; fat: number; tags: string[]; kind: string; serving: string; servingUnit: string }
 type WeightEntry = { date: string; value: number }
 type ModalType = 'workout' | 'meal' | 'weight' | null
 
@@ -40,7 +41,7 @@ async function loadAccountData(): Promise<AppData> {
     error?: string
     profile: { calorieTarget: number | null; proteinTarget: number | null } | null
     workouts: Array<{ id: string; title: string; focus: string; duration: number; volumeKg: number; startedAt: string }>
-    meals: Array<{ id: string; name: string; type: string; calories: number; proteinG: string | number; carbsG: string | number; fatG: string | number; eatenAt: string }>
+    meals: Array<{ id: string; name: string; type: string; quantity: string | number; servingUnit: string; servingDescription: string; calories: number; proteinG: string | number; carbsG: string | number; fatG: string | number; eatenAt: string }>
     weights: Array<{ id: string; weightKg: string | number; recordedAt: string }>
   }
   if (!response.ok) throw new Error(payload.error ?? 'Could not load your account data')
@@ -57,6 +58,7 @@ async function loadAccountData(): Promise<AppData> {
       id: meal.id, name: meal.name, type: meal.type.toLowerCase().replace(/^./, (char) => char.toUpperCase()),
       time: new Date(meal.eatenAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
       calories: meal.calories, protein: Number(meal.proteinG), carbs: Number(meal.carbsG), fat: Number(meal.fatG),
+      quantity: Number(meal.quantity), servingUnit: meal.servingUnit, serving: meal.servingDescription,
     })),
     weights: payload.weights.map((entry) => ({
       date: new Date(entry.recordedAt).toLocaleDateString([], { month: 'short', day: 'numeric' }),
@@ -100,6 +102,23 @@ const STORAGE_KEY = 'fittrack-pro-demo-v1'
 const calorieTarget = 2200
 const macroTarget = { protein: 145, carbs: 250, fat: 70 }
 
+const foods: FoodOption[] = [
+  { name: 'Paneer power bowl', description: 'Paneer · brown rice · spinach', calories: 520, protein: 32, carbs: 58, fat: 18, tags: ['Vegetarian', 'High protein'], kind: '🥗', serving: '1 bowl', servingUnit: 'bowl' },
+  { name: 'Peanut butter oats', description: 'Oats · banana · peanut butter', calories: 430, protein: 18, carbs: 55, fat: 16, tags: ['Vegetarian', 'Quick'], kind: '🥣', serving: '1 bowl', servingUnit: 'bowl' },
+  { name: 'Chicken & rice plate', description: 'Chicken · basmati rice · greens', calories: 610, protein: 45, carbs: 68, fat: 14, tags: ['High protein', 'Balanced'], kind: '🍚', serving: '1 plate', servingUnit: 'plate' },
+  { name: 'Lentil comfort bowl', description: 'Dal · roti · cucumber raita', calories: 480, protein: 24, carbs: 72, fat: 10, tags: ['Vegetarian', 'Budget friendly'], kind: '🍲', serving: '1 bowl', servingUnit: 'bowl' },
+  { name: 'Cooked white rice', description: 'Plain cooked rice', calories: 205, protein: 4.3, carbs: 44.5, fat: 0.4, tags: ['Vegetarian', 'Staple'], kind: '🍚', serving: '1 cup (158 g)', servingUnit: 'cup' },
+  { name: 'Roti / chapati', description: 'Plain whole-wheat roti', calories: 120, protein: 3.5, carbs: 20, fat: 3, tags: ['Vegetarian', 'Staple'], kind: '🫓', serving: '1 roti (40 g)', servingUnit: 'roti' },
+  { name: 'Cooked lentils (dal)', description: 'Plain cooked lentils', calories: 230, protein: 18, carbs: 40, fat: 0.8, tags: ['Vegetarian', 'High protein'], kind: '🍲', serving: '1 cup (198 g)', servingUnit: 'cup' },
+  { name: 'Paneer', description: 'Full-fat paneer, approximate', calories: 265, protein: 18.3, carbs: 1.2, fat: 20.8, tags: ['Vegetarian', 'High protein'], kind: '🧀', serving: '100 g', servingUnit: '100 g' },
+  { name: 'Chicken breast', description: 'Cooked, skinless chicken breast', calories: 165, protein: 31, carbs: 0, fat: 3.6, tags: ['High protein', 'Cooked'], kind: '🍗', serving: '100 g', servingUnit: '100 g' },
+  { name: 'Egg', description: 'One large boiled egg', calories: 78, protein: 6.3, carbs: 0.6, fat: 5.3, tags: ['Vegetarian', 'Quick'], kind: '🥚', serving: '1 large egg', servingUnit: 'egg' },
+  { name: 'Banana', description: 'One medium banana', calories: 105, protein: 1.3, carbs: 27, fat: 0.4, tags: ['Vegetarian', 'Quick'], kind: '🍌', serving: '1 medium banana', servingUnit: 'banana' },
+  { name: 'Milk', description: 'Whole cow’s milk, approximate', calories: 149, protein: 7.7, carbs: 11.7, fat: 8, tags: ['Vegetarian', 'Drink'], kind: '🥛', serving: '1 cup (244 ml)', servingUnit: 'cup' },
+  { name: 'Oats', description: 'Dry rolled oats', calories: 150, protein: 5, carbs: 27, fat: 3, tags: ['Vegetarian', 'Staple'], kind: '🥣', serving: '40 g', servingUnit: '40 g' },
+  { name: 'Greek yogurt', description: 'Plain, unsweetened yogurt', calories: 100, protein: 17, carbs: 6, fat: 0.7, tags: ['Vegetarian', 'High protein'], kind: '🥛', serving: '170 g cup', servingUnit: 'cup' },
+]
+
 function readStoredData(): AppData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -119,6 +138,7 @@ function App() {
   const section = sectionForPath(location.pathname)
   const [data, setData] = useState<AppData>(readStoredData)
   const [modal, setModal] = useState<ModalType>(null)
+  const [pendingFood, setPendingFood] = useState<FoodOption | null>(null)
   const [accountModal, setAccountModal] = useState(false)
   const [account, setAccount] = useState<Account | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -167,6 +187,11 @@ function App() {
     navigate(SECTION_PATHS[next])
   }
 
+  function openFoodLogger(food: FoodOption | null = null) {
+    setPendingFood(food)
+    setModal('meal')
+  }
+
   async function saveToAccount(path: string, body: Record<string, unknown>) {
     if (!account) return true
     try {
@@ -194,12 +219,15 @@ function App() {
     if (!(await saveToAccount('/workouts', { title: workout.title, focus: workout.focus, duration: workout.duration, volumeKg: workout.volume }))) return
     updateData({ ...data, workouts: [{ ...workout, id: crypto.randomUUID(), date: 'Just now', complete: true }, ...data.workouts] })
   }
-  async function addMeal(meal: Omit<Meal, 'id' | 'time'>) {
+  async function addMeal(meal: Omit<Meal, 'id' | 'time'>): Promise<boolean> {
     if (!(await saveToAccount('/meals', {
       name: meal.name, type: meal.type.toUpperCase(), calories: meal.calories,
       proteinG: meal.protein, carbsG: meal.carbs, fatG: meal.fat,
-    }))) return
+      quantity: meal.quantity ?? 1, servingUnit: meal.servingUnit ?? 'serving',
+      servingDescription: meal.serving ?? '1 serving',
+    }))) return false
     updateData({ ...data, meals: [...data.meals, { ...meal, id: crypto.randomUUID(), time: new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' }).format(new Date()) }] })
+    return true
   }
   async function addWeight(value: number) {
     if (!(await saveToAccount('/measurements/bodyweight', { weightKg: value }))) return
@@ -303,18 +331,19 @@ function App() {
           {section === 'Overview' && <Dashboard
             calories={calories} protein={protein} carbs={carbs} fat={fat} latestWeight={latestWeight} goalWeight={account ? null : 75} calorieTarget={activeCalorieTarget} proteinTarget={activeProteinTarget} carbsTarget={activeCarbsTarget} fatTarget={activeFatTarget}
             workouts={data.workouts} meals={todayMeals} weights={data.weights} workoutCount={weekWorkouts}
-            onAddWorkout={() => setModal('workout')} onAddMeal={() => setModal('meal')}
+            onAddWorkout={() => setModal('workout')} onAddMeal={() => openFoodLogger()}
             onAddWeight={() => setModal('weight')} onNavigate={changeSection}
           />}
           {section === 'Workouts' && <WorkoutsPage workouts={data.workouts} onAdd={() => setModal('workout')} />}
-          {section === 'Nutrition' && <NutritionPage meals={todayMeals} calories={calories} protein={protein} carbs={carbs} fat={fat} calorieTarget={activeCalorieTarget} proteinTarget={activeProteinTarget} carbsTarget={activeCarbsTarget} fatTarget={activeFatTarget} onAdd={() => setModal('meal')} />}
+          {section === 'Nutrition' && <NutritionPage meals={todayMeals} calories={calories} protein={protein} carbs={carbs} fat={fat} calorieTarget={activeCalorieTarget} proteinTarget={activeProteinTarget} carbsTarget={activeCarbsTarget} fatTarget={activeFatTarget} onAdd={() => openFoodLogger()} />}
           {section === 'Progress' && <ProgressPage weights={data.weights} latestWeight={latestWeight} onAdd={() => setModal('weight')} />}
           {section === 'Intelligence' && <IntelligencePage calories={calories} protein={protein} calorieTarget={activeCalorieTarget} workoutCount={weekWorkouts} completedActions={completedActions} onToggle={toggleAction} />}
-          {section === 'Meal builder' && <MealBuilder onLog={(meal) => { void addMeal(meal); changeSection('Nutrition') }} />}
+          {section === 'Meal builder' && <MealBuilder onLog={openFoodLogger} />}
         </div>
       </main>
 
-      {modal && <EntryModal type={modal} onClose={() => setModal(null)} onWorkout={(value) => { addWorkout(value); setModal(null) }} onMeal={(value) => { addMeal(value); setModal(null) }} onWeight={(value) => { addWeight(value); setModal(null) }} />}
+      {modal && modal !== 'meal' && <EntryModal type={modal} onClose={() => setModal(null)} onWorkout={(value) => { addWorkout(value); setModal(null) }} onWeight={(value) => { addWeight(value); setModal(null) }} />}
+      {modal === 'meal' && <FoodQuantityModal initialFood={pendingFood} onClose={() => setModal(null)} onSave={(meal) => { void addMeal(meal).then((saved) => { if (saved) { setModal(null); setPendingFood(null) } }) }} />}
       {accountModal && <AccountModal onClose={() => setAccountModal(false)} onSubmit={authenticate} />}
       {notice && <div className="toast" role="status"><span className="toast-check"><Check size={15} /></span>{notice}<button aria-label="Dismiss notification" onClick={() => setNotice('')}><X size={15} /></button></div>}
     </div>
@@ -476,7 +505,8 @@ function WorkoutRow({ workout, index }: { workout: Workout; index: number }) {
 }
 
 function MealRow({ meal }: { meal: Meal }) {
-  return <div className="meal-row"><div className="meal-row-icon"><Utensils size={16} /></div><div className="meal-row-name"><strong>{meal.name}</strong><span>{meal.type} <i /> {meal.time}</span></div><div className="meal-row-nutrition"><strong>{meal.calories} <small>kcal</small></strong><span>{meal.protein}g protein</span></div><ChevronRight size={16} className="row-chevron" /></div>
+  const quantityLabel = meal.quantity && meal.serving ? `${meal.quantity} × ${meal.serving}` : meal.quantity && meal.servingUnit ? `${meal.quantity} ${meal.servingUnit}` : ''
+  return <div className="meal-row"><div className="meal-row-icon"><Utensils size={16} /></div><div className="meal-row-name"><strong>{meal.name}</strong><span>{meal.type}{quantityLabel && <> <i /> {quantityLabel}</>} <i /> {meal.time}</span></div><div className="meal-row-nutrition"><strong>{meal.calories} <small>kcal</small></strong><span>{meal.protein}g protein</span></div><ChevronRight size={16} className="row-chevron" /></div>
 }
 
 function SectionHeader({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: ReactNode }) {
@@ -548,14 +578,7 @@ function IntelligencePage({ calories, protein, calorieTarget, workoutCount, comp
   </>
 }
 
-const foods = [
-  { name: 'Paneer power bowl', description: 'Paneer · brown rice · spinach', calories: 520, protein: 32, carbs: 58, fat: 18, tags: ['Vegetarian', 'High protein'], kind: '🥗' },
-  { name: 'Peanut butter oats', description: 'Oats · banana · peanut butter', calories: 430, protein: 18, carbs: 55, fat: 16, tags: ['Vegetarian', 'Quick'], kind: '🥣' },
-  { name: 'Chicken & rice plate', description: 'Chicken · basmati rice · greens', calories: 610, protein: 45, carbs: 68, fat: 14, tags: ['High protein', 'Balanced'], kind: '🍚' },
-  { name: 'Lentil comfort bowl', description: 'Dal · roti · cucumber raita', calories: 480, protein: 24, carbs: 72, fat: 10, tags: ['Vegetarian', 'Budget friendly'], kind: '🍲' },
-]
-
-function MealBuilder({ onLog }: { onLog: (meal: Omit<Meal, 'id' | 'time'>) => void }) {
+function MealBuilder({ onLog }: { onLog: (food: FoodOption) => void }) {
   const [query, setQuery] = useState('')
   const [goal, setGoal] = useState('Balanced')
   const filteredFoods = foods.filter((food) => {
@@ -567,7 +590,7 @@ function MealBuilder({ onLog }: { onLog: (meal: Omit<Meal, 'id' | 'time'>) => vo
     <SectionHeader eyebrow="SMART MEAL BUILDER" title="Good food, made simpler." description="Practical meal ideas using familiar, everyday ingredients." action={<span className="estimate-pill"><Sparkles size={14} /> Approximate nutrition</span>} />
     <div className="meal-builder-intro"><div className="builder-illustration"><span>🥑</span><i>✦</i><b>🥣</b></div><div><div className="card-overline">MADE FOR YOUR DAY</div><h2>What sounds good?</h2><p>Browse simple meal ideas and log one straight to your food diary. Nutrition values are estimates.</p><label className="builder-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search ingredients or meals" /></label></div></div>
     <div className="meal-builder-controls"><div><span className="control-label">I'M LOOKING FOR</span><div className="filter-tabs">{['Balanced', 'High protein', 'Vegetarian'].map((item) => <button key={item} className={goal === item ? 'filter-active' : ''} onClick={() => setGoal(item)}>{item}</button>)}</div></div>    <div className="target-budget"><Target size={16} /><span>Meal ideas around <strong>600 kcal</strong></span></div></div>
-    <div className="food-grid">{filteredFoods.map((food) => <article className="surface-card food-card" key={food.name}><div className="food-art">{food.kind}<span>{food.tags[0]}</span></div><div className="food-card-copy"><div className="food-tags">{food.tags.map((tag) => <span key={tag}>{tag}</span>)}</div><h3>{food.name}</h3><p>{food.description}</p><div className="food-nutrition"><div><strong>{food.calories}</strong><span>kcal</span></div><div><strong>{food.protein}g</strong><span>protein</span></div><div><strong>{food.carbs}g</strong><span>carbs</span></div><div><strong>{food.fat}g</strong><span>fat</span></div></div><button className="food-log-button" onClick={() => onLog({ name: food.name, type: 'Lunch', calories: food.calories, protein: food.protein, carbs: food.carbs, fat: food.fat })}><Plus size={15} /> Add to food diary</button></div></article>)}</div>
+    <div className="food-grid">{filteredFoods.map((food) => <article className="surface-card food-card" key={food.name}><div className="food-art">{food.kind}<span>{food.tags[0]}</span></div><div className="food-card-copy"><div className="food-tags">{food.tags.map((tag) => <span key={tag}>{tag}</span>)}</div><h3>{food.name}</h3><p>{food.description}</p><div className="food-nutrition"><div><strong>{food.calories}</strong><span>kcal / {food.servingUnit}</span></div><div><strong>{food.protein}g</strong><span>protein</span></div><div><strong>{food.carbs}g</strong><span>carbs</span></div><div><strong>{food.fat}g</strong><span>fat</span></div></div><button className="food-log-button" onClick={() => onLog(food)}><Plus size={15} /> Choose quantity</button></div></article>)}</div>
     {filteredFoods.length === 0 && <EmptyState icon={<Search size={20} />} title="No meals match that search" text="Try a different ingredient or meal name." />}
     <div className="helper-note"><Lightbulb size={16} /><span><strong>Make it your own.</strong> Serving sizes and recipes vary. Adjust ingredient amounts to match what you actually prepare.</span></div>
   </>
@@ -581,10 +604,76 @@ function EmptyState({ icon, title, text, action, onAction }: { icon: ReactNode; 
   return <div className="empty-state"><div className="empty-icon">{icon}</div><strong>{title}</strong><p>{text}</p>{action && onAction && <button className="text-button" onClick={onAction}>{action} <ArrowRight size={14} /></button>}</div>
 }
 
-function EntryModal({ type, onClose, onWorkout, onMeal, onWeight }: {
-  type: Exclude<ModalType, null>; onClose: () => void;
+function FoodQuantityModal({ initialFood, onClose, onSave }: {
+  initialFood: FoodOption | null
+  onClose: () => void
+  onSave: (value: Omit<Meal, 'id' | 'time'>) => void
+}) {
+  const [foodName, setFoodName] = useState(initialFood?.name ?? '')
+  const [quantity, setQuantity] = useState(1)
+  const [mealType, setMealType] = useState('Snack')
+  const [customName, setCustomName] = useState('')
+  const [customServing, setCustomServing] = useState('1 serving')
+  const [customCalories, setCustomCalories] = useState(0)
+  const [customProtein, setCustomProtein] = useState(0)
+  const [customCarbs, setCustomCarbs] = useState(0)
+  const [customFat, setCustomFat] = useState(0)
+  const [error, setError] = useState('')
+  const selectedFood = foods.find((food) => food.name === foodName)
+  const isCustom = foodName === 'custom'
+  const baseNutrition = isCustom
+    ? { calories: customCalories, protein: customProtein, carbs: customCarbs, fat: customFat }
+    : selectedFood
+  const safeQuantity = Number.isFinite(quantity) ? quantity : 0
+  const totals = baseNutrition && safeQuantity > 0 ? {
+    calories: Math.round(baseNutrition.calories * safeQuantity),
+    protein: Math.round(baseNutrition.protein * safeQuantity * 10) / 10,
+    carbs: Math.round(baseNutrition.carbs * safeQuantity * 10) / 10,
+    fat: Math.round(baseNutrition.fat * safeQuantity * 10) / 10,
+  } : null
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!baseNutrition || !Number.isFinite(quantity) || quantity <= 0 || quantity > 100 ||
+      [baseNutrition.calories, baseNutrition.protein, baseNutrition.carbs, baseNutrition.fat].some((value) => !Number.isFinite(value) || value < 0)) {
+      setError('Choose a food and enter a quantity greater than 0 (up to 100 servings).')
+      return
+    }
+    const name = isCustom ? customName.trim() : selectedFood?.name
+    if (!name || (isCustom && !customServing.trim())) {
+      setError('Enter a food name and serving description.')
+      return
+    }
+    const serving = isCustom ? customServing.trim() : selectedFood?.serving ?? '1 serving'
+    const servingUnit = isCustom ? 'serving' : selectedFood?.servingUnit ?? 'serving'
+    if (!totals) {
+      setError('Enter a valid quantity to calculate nutrition.')
+      return
+    }
+    onSave({
+      name, type: mealType, quantity, servingUnit, serving,
+      calories: totals.calories, protein: totals.protein, carbs: totals.carbs, fat: totals.fat,
+    })
+  }
+
+  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="entry-modal food-quantity-modal" role="dialog" aria-modal="true" aria-labelledby="food-modal-title"><div className="modal-heading"><div><span className="card-overline">FOOD DIARY</span><h2 id="food-modal-title">Add food & quantity</h2></div><button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={19} /></button></div>
+    <p className="modal-description">Choose a food and serving amount. Nutrition totals update automatically from the reference serving.</p>
+    <form onSubmit={handleSubmit}>
+      <label>Food<select value={foodName} onChange={(event) => { setFoodName(event.target.value); setError('') }} autoFocus><option value="">Choose a food</option>{foods.map((food) => <option value={food.name} key={food.name}>{food.name} — {food.serving}</option>)}<option value="custom">Custom food / not listed</option></select></label>
+      {isCustom && <><label>Food name<input value={customName} onChange={(event) => setCustomName(event.target.value)} placeholder="e.g. Homemade vegetable curry" /></label><label>Reference serving<input value={customServing} onChange={(event) => setCustomServing(event.target.value)} placeholder="e.g. 1 bowl (250 g)" /></label><div className="form-grid custom-nutrition-fields"><label>Calories <span>kcal per serving</span><input type="number" min="0" value={customCalories} onChange={(event) => setCustomCalories(Number(event.target.value))} /></label><label>Protein <span>g per serving</span><input type="number" min="0" step="0.1" value={customProtein} onChange={(event) => setCustomProtein(Number(event.target.value))} /></label><label>Carbs <span>g per serving</span><input type="number" min="0" step="0.1" value={customCarbs} onChange={(event) => setCustomCarbs(Number(event.target.value))} /></label><label>Fat <span>g per serving</span><input type="number" min="0" step="0.1" value={customFat} onChange={(event) => setCustomFat(Number(event.target.value))} /></label></div></>}
+      {selectedFood && <div className="reference-serving"><Utensils size={14} /><span>Reference serving: <strong>{selectedFood.serving}</strong></span><span className="approximate-label">Approximate</span></div>}
+      <div className="form-grid quantity-form-row"><label>Quantity <span>servings</span><input type="number" min="0.1" max="100" step="0.1" value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} /></label><label>Meal type<select value={mealType} onChange={(event) => setMealType(event.target.value)}><option>Breakfast</option><option>Lunch</option><option>Dinner</option><option>Snack</option></select></label></div>
+      {totals && <div className="nutrition-calculation"><div className="calculation-heading"><span>Estimated total</span><span>{quantity} × {isCustom ? customServing : selectedFood?.serving}</span></div><div className="calculation-calories"><Flame size={16} /><strong>{totals.calories}</strong><span>kcal</span></div><div className="calculation-macros"><span><i className="macro-dot violet" />Protein <strong>{totals.protein}g</strong></span><span><i className="macro-dot orange" />Carbs <strong>{totals.carbs}g</strong></span><span><i className="macro-dot yellow" />Fat <strong>{totals.fat}g</strong></span></div></div>}
+      {error && <div className="form-error" role="alert">{error}</div>}
+      <div className="modal-actions"><button type="button" className="cancel-button" onClick={onClose}>Cancel</button><button type="submit" className="primary-button"><Plus size={15} /> Add to diary</button></div>
+    </form>
+  </section></div>
+}
+
+function EntryModal({ type, onClose, onWorkout, onWeight }: {
+  type: Exclude<ModalType, 'meal' | null>; onClose: () => void;
   onWorkout: (value: Omit<Workout, 'id' | 'date' | 'complete'>) => void;
-  onMeal: (value: Omit<Meal, 'id' | 'time'>) => void; onWeight: (value: number) => void
+  onWeight: (value: number) => void
 }) {
   const [error, setError] = useState('')
   const titles = { workout: 'Log a workout', meal: 'Log food', weight: 'Record bodyweight' }
@@ -597,14 +686,6 @@ function EntryModal({ type, onClose, onWorkout, onMeal, onWeight }: {
       const duration = Number(form.get('duration'))
       if (!title || volume < 0 || duration <= 0) { setError('Add a workout name, duration, and a valid volume.'); return }
       onWorkout({ title, focus: String(form.get('focus') || 'Full body'), duration, volume })
-    } else if (type === 'meal') {
-      const name = String(form.get('name') || '').trim()
-      const calories = Number(form.get('calories'))
-      const protein = Number(form.get('protein'))
-      const carbs = Number(form.get('carbs'))
-      const fat = Number(form.get('fat'))
-      if (!name || calories < 0 || protein < 0 || carbs < 0 || fat < 0) { setError('Enter a food name and non-negative nutrition values.'); return }
-      onMeal({ name, type: String(form.get('type')), calories, protein, carbs, fat })
     } else {
       const weight = Number(form.get('weight'))
       if (!Number.isFinite(weight) || weight < 20 || weight > 350) { setError('Enter a bodyweight between 20 and 350 kg.'); return }
@@ -614,7 +695,6 @@ function EntryModal({ type, onClose, onWorkout, onMeal, onWeight }: {
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="entry-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-heading"><div><span className="card-overline">YOUR PROGRESS</span><h2 id="modal-title">{titles[type]}</h2></div><button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={19} /></button></div>
     <form onSubmit={handleSubmit}>
       {type === 'workout' && <><label>Workout name<input name="title" placeholder="e.g. Upper body strength" autoFocus /></label><label>Focus areas<input name="focus" placeholder="e.g. Chest · Back · Shoulders" /></label><div className="form-grid"><label>Duration <span>minutes</span><input name="duration" type="number" min="1" defaultValue="45" /></label><label>Session volume <span>kg</span><input name="volume" type="number" min="0" defaultValue="0" /></label></div></>}
-      {type === 'meal' && <><label>Food or meal name<input name="name" placeholder="e.g. Oats with banana" autoFocus /></label><label>Meal type<select name="type" defaultValue="Snack"><option>Breakfast</option><option>Lunch</option><option>Dinner</option><option>Snack</option></select></label><div className="form-grid"><label>Calories <span>kcal</span><input name="calories" type="number" min="0" defaultValue="300" /></label><label>Protein <span>g</span><input name="protein" type="number" min="0" defaultValue="20" /></label><label>Carbs <span>g</span><input name="carbs" type="number" min="0" defaultValue="35" /></label><label>Fat <span>g</span><input name="fat" type="number" min="0" defaultValue="10" /></label></div></>}
       {type === 'weight' && <><p className="modal-description">Use a similar time of day for more useful comparisons. Daily weight naturally fluctuates.</p><label>Bodyweight <span>kg</span><input name="weight" type="number" min="20" max="350" step="0.1" placeholder="e.g. 72.4" autoFocus /></label></>}
       {error && <div className="form-error" role="alert">{error}</div>}
       <div className="modal-actions"><button type="button" className="cancel-button" onClick={onClose}>Cancel</button><button type="submit" className="primary-button"><Check size={15} /> Save entry</button></div>

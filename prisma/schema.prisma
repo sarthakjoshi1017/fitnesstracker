@@ -117,6 +117,9 @@ model MealEntry {
   userId     String   @db.Uuid
   name       String   @db.VarChar(120)
   type       MealType @default(SNACK)
+  quantity   Decimal  @default(1) @db.Decimal(7, 2)
+  servingUnit String  @default("serving") @db.VarChar(40)
+  servingDescription String @default("1 serving") @db.VarChar(80)
   calories   Int
   proteinG   Decimal  @db.Decimal(7, 2)
   carbsG     Decimal  @db.Decimal(7, 2)
