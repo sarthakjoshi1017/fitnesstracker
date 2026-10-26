@@ -21,6 +21,7 @@ app.use(cookieParser())
 app.use(express.json({ limit: '16kb' }))
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 12, standardHeaders: 'draft-8', legacyHeaders: false })
+const foodSearchLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 40, standardHeaders: 'draft-8', legacyHeaders: false })
 const router = Router()
 const emailSchema = z.string().trim().toLowerCase().email().max(254)
 const passwordSchema = z.string().min(8).max(72).refine((value) => Buffer.byteLength(value, 'utf8') <= 72, 'Password is too long')
@@ -45,6 +46,44 @@ function asyncRoute(handler: (request: Request, response: Response, next: NextFu
 }
 
 router.get('/health', (_request, response) => response.json({ status: 'ok', service: 'fittrack-pro-api' }))
+
+router.get('/foods/search', foodSearchLimiter, asyncRoute(async (request, response) => {
+  const { query } = z.object({ query: z.string().trim().min(2).max(80) }).parse({ query: request.query.q })
+  const url = new URL('https://world.openfoodfacts.org/api/v2/search')
+  url.search = new URLSearchParams({
+    search_terms: query,
+    page_size: '8',
+    fields: 'code,product_name,brands,nutriments',
+  }).toString()
+  let upstream: globalThis.Response
+  try {
+    upstream = await fetch(url, {
+      headers: { Accept: 'application/json', 'User-Agent': 'FitTrackPro/1.0 (food search)' },
+      signal: AbortSignal.timeout(8000),
+    })
+  } catch (error) {
+    console.error('Food database request failed:', error instanceof Error ? error.name : 'Unknown error')
+    response.status(502).json({ error: 'The food database is temporarily unavailable. Try again or enter nutrition manually.' })
+    return
+  }
+  if (!upstream.ok) {
+    response.status(502).json({ error: `The food database returned HTTP ${upstream.status}. Try again or enter nutrition manually.` })
+    return
+  }
+  let payload: { products?: unknown }
+  try {
+    payload = await upstream.json() as { products?: unknown }
+  } catch (error) {
+    console.error('Food database returned invalid JSON:', error)
+    response.status(502).json({ error: 'The food database returned an invalid response. Try again or enter nutrition manually.' })
+    return
+  }
+  if (!Array.isArray(payload.products)) {
+    response.status(502).json({ error: 'The food database returned an unexpected response. Try again or enter nutrition manually.' })
+    return
+  }
+  response.json({ products: payload.products })
+}))
 
 router.post('/auth/register', authLimiter, asyncRoute(async (request, response) => {
   const input = z.object({
@@ -182,7 +221,7 @@ router.post('/meals', requireAuth, asyncRoute(async (request, response) => {
   const input = z.object({
     name: z.string().trim().min(1).max(120),
     type: z.enum(['BREAKFAST', 'LUNCH', 'DINNER', 'SNACK']).default('SNACK'),
-    quantity: z.number().positive().max(100).default(1),
+    quantity: z.number().positive().max(1000).default(1),
     servingUnit: z.string().trim().min(1).max(40).default('serving'),
     servingDescription: z.string().trim().min(1).max(80).default('1 serving'),
     calories: z.number().int().min(0).max(10000),

@@ -11,6 +11,7 @@ import {
 } from 'chart.js'
 import { Doughnut, Line } from 'react-chartjs-2'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { normalizeOpenFoodFactsProduct, scaleNutrition, type FoodSearchResult } from './nutrition'
 import './App.css'
 
 ChartJS.register(ArcElement, CategoryScale, Filler, Legend, LinearScale, LineElement, PointElement, Tooltip)
@@ -18,7 +19,7 @@ ChartJS.register(ArcElement, CategoryScale, Filler, Legend, LinearScale, LineEle
 type Section = 'Overview' | 'Workouts' | 'Nutrition' | 'Progress' | 'Intelligence' | 'Meal builder'
 type Workout = { id: string; title: string; focus: string; date: string; duration: number; volume: number; complete: boolean }
 type Meal = { id: string; name: string; type: string; time: string; calories: number; protein: number; carbs: number; fat: number; quantity?: number; servingUnit?: string; serving?: string }
-type FoodOption = { name: string; description: string; calories: number; protein: number; carbs: number; fat: number; tags: string[]; kind: string; serving: string; servingUnit: string }
+type FoodOption = { name: string; description: string; calories: number; protein: number; carbs: number; fat: number; tags: string[]; kind: string; serving: string; servingUnit: string; ingredients?: string[]; steps?: string[]; prepMinutes?: number; source?: string }
 type WeightEntry = { date: string; value: number }
 type ModalType = 'workout' | 'meal' | 'weight' | null
 
@@ -103,10 +104,10 @@ const calorieTarget = 2200
 const macroTarget = { protein: 145, carbs: 250, fat: 70 }
 
 const foods: FoodOption[] = [
-  { name: 'Paneer power bowl', description: 'Paneer · brown rice · spinach', calories: 520, protein: 32, carbs: 58, fat: 18, tags: ['Vegetarian', 'High protein'], kind: '🥗', serving: '1 bowl', servingUnit: 'bowl' },
-  { name: 'Peanut butter oats', description: 'Oats · banana · peanut butter', calories: 430, protein: 18, carbs: 55, fat: 16, tags: ['Vegetarian', 'Quick'], kind: '🥣', serving: '1 bowl', servingUnit: 'bowl' },
-  { name: 'Chicken & rice plate', description: 'Chicken · basmati rice · greens', calories: 610, protein: 45, carbs: 68, fat: 14, tags: ['High protein', 'Balanced'], kind: '🍚', serving: '1 plate', servingUnit: 'plate' },
-  { name: 'Lentil comfort bowl', description: 'Dal · roti · cucumber raita', calories: 480, protein: 24, carbs: 72, fat: 10, tags: ['Vegetarian', 'Budget friendly'], kind: '🍲', serving: '1 bowl', servingUnit: 'bowl' },
+  { name: 'Paneer power bowl', description: 'Paneer · brown rice · spinach', calories: 520, protein: 32, carbs: 58, fat: 18, tags: ['Vegetarian', 'High protein'], kind: '🥗', serving: '1 bowl', servingUnit: 'bowl', prepMinutes: 15, ingredients: ['120 g paneer, cubed', '¾ cup cooked brown rice', '1 cup baby spinach', '½ cup bell pepper, sliced', '1 tsp olive oil', 'Lemon, salt, pepper, and cumin'], steps: ['Warm the olive oil in a pan. Season and sear the paneer until golden on both sides.', 'Add the bell pepper and cook for 3–4 minutes until just tender. Fold in the spinach until wilted.', 'Serve over warm brown rice. Finish with lemon juice and a pinch of cumin.'] },
+  { name: 'Peanut butter oats', description: 'Oats · banana · peanut butter', calories: 430, protein: 18, carbs: 55, fat: 16, tags: ['Vegetarian', 'Quick'], kind: '🥣', serving: '1 bowl', servingUnit: 'bowl', prepMinutes: 10, ingredients: ['½ cup rolled oats', '1 cup milk or unsweetened alternative', '1 medium banana', '1 tbsp peanut butter', 'A pinch of cinnamon'], steps: ['Combine the oats and milk in a small saucepan. Simmer for 5 minutes, stirring occasionally, until creamy.', 'Slice the banana and stir half into the oats.', 'Transfer to a bowl and top with the remaining banana, peanut butter, and cinnamon.'] },
+  { name: 'Chicken & rice plate', description: 'Chicken · basmati rice · greens', calories: 610, protein: 45, carbs: 68, fat: 14, tags: ['High protein', 'Balanced'], kind: '🍚', serving: '1 plate', servingUnit: 'plate', prepMinutes: 20, ingredients: ['150 g boneless chicken breast', '¾ cup cooked basmati rice', '1 cup mixed greens or vegetables', '1 tsp oil', 'Garlic, lemon, salt, and black pepper'], steps: ['Season the chicken with garlic, lemon, salt, and pepper.', 'Cook in a lightly oiled pan over medium heat until the thickest part reaches 74°C / 165°F; rest briefly and slice.', 'Serve with cooked basmati rice and greens. Keep sauces or added oil in mind when estimating nutrition.'] },
+  { name: 'Lentil comfort bowl', description: 'Dal · roti · cucumber raita', calories: 480, protein: 24, carbs: 72, fat: 10, tags: ['Vegetarian', 'Budget friendly'], kind: '🍲', serving: '1 bowl', servingUnit: 'bowl', prepMinutes: 15, ingredients: ['¾ cup cooked lentils or dal', '1 whole-wheat roti', '½ cup plain yogurt', '½ cucumber, grated', 'Cumin, turmeric, salt, and coriander'], steps: ['Warm the cooked dal with turmeric, cumin, and a splash of water; simmer for 3–4 minutes.', 'Mix grated cucumber into plain yogurt and season lightly with salt and cumin.', 'Serve the dal with roti and cucumber raita.'] },
   { name: 'Cooked white rice', description: 'Plain cooked rice', calories: 205, protein: 4.3, carbs: 44.5, fat: 0.4, tags: ['Vegetarian', 'Staple'], kind: '🍚', serving: '1 cup (158 g)', servingUnit: 'cup' },
   { name: 'Roti / chapati', description: 'Plain whole-wheat roti', calories: 120, protein: 3.5, carbs: 20, fat: 3, tags: ['Vegetarian', 'Staple'], kind: '🫓', serving: '1 roti (40 g)', servingUnit: 'roti' },
   { name: 'Cooked lentils (dal)', description: 'Plain cooked lentils', calories: 230, protein: 18, carbs: 40, fat: 0.8, tags: ['Vegetarian', 'High protein'], kind: '🍲', serving: '1 cup (198 g)', servingUnit: 'cup' },
@@ -139,6 +140,7 @@ function App() {
   const [data, setData] = useState<AppData>(readStoredData)
   const [modal, setModal] = useState<ModalType>(null)
   const [pendingFood, setPendingFood] = useState<FoodOption | null>(null)
+  const [recipeFood, setRecipeFood] = useState<FoodOption | null>(null)
   const [accountModal, setAccountModal] = useState(false)
   const [account, setAccount] = useState<Account | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -338,12 +340,13 @@ function App() {
           {section === 'Nutrition' && <NutritionPage meals={todayMeals} calories={calories} protein={protein} carbs={carbs} fat={fat} calorieTarget={activeCalorieTarget} proteinTarget={activeProteinTarget} carbsTarget={activeCarbsTarget} fatTarget={activeFatTarget} onAdd={() => openFoodLogger()} />}
           {section === 'Progress' && <ProgressPage weights={data.weights} latestWeight={latestWeight} onAdd={() => setModal('weight')} />}
           {section === 'Intelligence' && <IntelligencePage calories={calories} protein={protein} calorieTarget={activeCalorieTarget} workoutCount={weekWorkouts} completedActions={completedActions} onToggle={toggleAction} />}
-          {section === 'Meal builder' && <MealBuilder onLog={openFoodLogger} />}
+          {section === 'Meal builder' && <MealBuilder onLog={openFoodLogger} onOpenRecipe={setRecipeFood} />}
         </div>
       </main>
 
       {modal && modal !== 'meal' && <EntryModal type={modal} onClose={() => setModal(null)} onWorkout={(value) => { addWorkout(value); setModal(null) }} onWeight={(value) => { addWeight(value); setModal(null) }} />}
       {modal === 'meal' && <FoodQuantityModal initialFood={pendingFood} onClose={() => setModal(null)} onSave={(meal) => { void addMeal(meal).then((saved) => { if (saved) { setModal(null); setPendingFood(null) } }) }} />}
+      {recipeFood && <RecipeModal food={recipeFood} onClose={() => setRecipeFood(null)} onLog={(food) => { setRecipeFood(null); openFoodLogger(food) }} />}
       {accountModal && <AccountModal onClose={() => setAccountModal(false)} onSubmit={authenticate} />}
       {notice && <div className="toast" role="status"><span className="toast-check"><Check size={15} /></span>{notice}<button aria-label="Dismiss notification" onClick={() => setNotice('')}><X size={15} /></button></div>}
     </div>
@@ -505,7 +508,9 @@ function WorkoutRow({ workout, index }: { workout: Workout; index: number }) {
 }
 
 function MealRow({ meal }: { meal: Meal }) {
-  const quantityLabel = meal.quantity && meal.serving ? `${meal.quantity} × ${meal.serving}` : meal.quantity && meal.servingUnit ? `${meal.quantity} ${meal.servingUnit}` : ''
+  const quantityLabel = meal.quantity && meal.servingUnit === 'g'
+    ? `${meal.quantity} g${meal.serving?.includes('Open Food Facts') ? ' · Open Food Facts' : ''}`
+    : meal.quantity && meal.serving ? `${meal.quantity} × ${meal.serving}` : meal.quantity && meal.servingUnit ? `${meal.quantity} ${meal.servingUnit}` : ''
   return <div className="meal-row"><div className="meal-row-icon"><Utensils size={16} /></div><div className="meal-row-name"><strong>{meal.name}</strong><span>{meal.type}{quantityLabel && <> <i /> {quantityLabel}</>} <i /> {meal.time}</span></div><div className="meal-row-nutrition"><strong>{meal.calories} <small>kcal</small></strong><span>{meal.protein}g protein</span></div><ChevronRight size={16} className="row-chevron" /></div>
 }
 
@@ -578,10 +583,11 @@ function IntelligencePage({ calories, protein, calorieTarget, workoutCount, comp
   </>
 }
 
-function MealBuilder({ onLog }: { onLog: (food: FoodOption) => void }) {
+function MealBuilder({ onLog, onOpenRecipe }: { onLog: (food: FoodOption) => void; onOpenRecipe: (food: FoodOption) => void }) {
   const [query, setQuery] = useState('')
   const [goal, setGoal] = useState('Balanced')
   const filteredFoods = foods.filter((food) => {
+    if (!food.ingredients?.length || !food.steps?.length) return false
     const matchesQuery = `${food.name} ${food.description} ${food.tags.join(' ')}`.toLowerCase().includes(query.toLowerCase())
     const matchesGoal = goal === 'High protein' ? food.tags.includes('High protein') : goal === 'Vegetarian' ? food.tags.includes('Vegetarian') : true
     return matchesQuery && matchesGoal
@@ -590,10 +596,23 @@ function MealBuilder({ onLog }: { onLog: (food: FoodOption) => void }) {
     <SectionHeader eyebrow="SMART MEAL BUILDER" title="Good food, made simpler." description="Practical meal ideas using familiar, everyday ingredients." action={<span className="estimate-pill"><Sparkles size={14} /> Approximate nutrition</span>} />
     <div className="meal-builder-intro"><div className="builder-illustration"><span>🥑</span><i>✦</i><b>🥣</b></div><div><div className="card-overline">MADE FOR YOUR DAY</div><h2>What sounds good?</h2><p>Browse simple meal ideas and log one straight to your food diary. Nutrition values are estimates.</p><label className="builder-search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search ingredients or meals" /></label></div></div>
     <div className="meal-builder-controls"><div><span className="control-label">I'M LOOKING FOR</span><div className="filter-tabs">{['Balanced', 'High protein', 'Vegetarian'].map((item) => <button key={item} className={goal === item ? 'filter-active' : ''} onClick={() => setGoal(item)}>{item}</button>)}</div></div>    <div className="target-budget"><Target size={16} /><span>Meal ideas around <strong>600 kcal</strong></span></div></div>
-    <div className="food-grid">{filteredFoods.map((food) => <article className="surface-card food-card" key={food.name}><div className="food-art">{food.kind}<span>{food.tags[0]}</span></div><div className="food-card-copy"><div className="food-tags">{food.tags.map((tag) => <span key={tag}>{tag}</span>)}</div><h3>{food.name}</h3><p>{food.description}</p><div className="food-nutrition"><div><strong>{food.calories}</strong><span>kcal / {food.servingUnit}</span></div><div><strong>{food.protein}g</strong><span>protein</span></div><div><strong>{food.carbs}g</strong><span>carbs</span></div><div><strong>{food.fat}g</strong><span>fat</span></div></div><button className="food-log-button" onClick={() => onLog(food)}><Plus size={15} /> Choose quantity</button></div></article>)}</div>
+    <div className="food-grid">{filteredFoods.map((food) => <article className="surface-card food-card" key={food.name}><div className="food-art">{food.kind}<span>{food.tags[0]}</span></div><div className="food-card-copy"><div className="food-tags">{food.tags.map((tag) => <span key={tag}>{tag}</span>)}</div><h3>{food.name}</h3><p>{food.description}</p><div className="food-nutrition"><div><strong>{food.calories}</strong><span>kcal / serving</span></div><div><strong>{food.protein}g</strong><span>protein</span></div><div><strong>{food.carbs}g</strong><span>carbs</span></div><div><strong>{food.fat}g</strong><span>fat</span></div></div><div className="food-card-actions"><button className="food-recipe-button" onClick={() => onOpenRecipe(food)}>How to make <ArrowRight size={14} /></button><button className="food-log-button" onClick={() => onLog(food)}><Plus size={15} /> Log meal</button></div></div></article>)}</div>
     {filteredFoods.length === 0 && <EmptyState icon={<Search size={20} />} title="No meals match that search" text="Try a different ingredient or meal name." />}
     <div className="helper-note"><Lightbulb size={16} /><span><strong>Make it your own.</strong> Serving sizes and recipes vary. Adjust ingredient amounts to match what you actually prepare.</span></div>
   </>
+}
+
+function RecipeModal({ food, onClose, onLog }: { food: FoodOption; onClose: () => void; onLog: (food: FoodOption) => void }) {
+  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="entry-modal recipe-modal" role="dialog" aria-modal="true" aria-labelledby="recipe-title">
+    <div className="modal-heading"><div><span className="card-overline">SIMPLE MEAL IDEA</span><h2 id="recipe-title">{food.name}</h2></div><button className="icon-button" aria-label="Close recipe" onClick={onClose}><X size={19} /></button></div>
+    <p className="recipe-description">{food.description}. Recipe makes one serving; adjust ingredients to suit your appetite and preferences.</p>
+    <div className="recipe-meta"><span><Clock3 size={14} /> About {food.prepMinutes ?? 15} minutes</span><span><Utensils size={14} /> 1 serving</span><span><Flame size={14} /> ~{food.calories} kcal</span></div>
+    <div className="recipe-macros"><span><strong>{food.protein}g</strong> protein</span><span><strong>{food.carbs}g</strong> carbs</span><span><strong>{food.fat}g</strong> fat</span></div>
+    <section className="recipe-section"><h3>Ingredients</h3><ul>{food.ingredients?.map((ingredient) => <li key={ingredient}>{ingredient}</li>)}</ul></section>
+    <section className="recipe-section"><h3>How to make it</h3><ol>{food.steps?.map((step, index) => <li key={step}><span>{index + 1}</span><p>{step}</p></li>)}</ol></section>
+    <p className="recipe-note">Nutrition is an estimate and will vary with ingredient brands, portions, and cooking methods.</p>
+    <div className="modal-actions"><button type="button" className="cancel-button" onClick={onClose}>Close</button><button type="button" className="primary-button" onClick={() => onLog(food)}><Plus size={15} /> Log this meal</button></div>
+  </section></div>
 }
 
 function MiniStat({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {
@@ -618,25 +637,83 @@ function FoodQuantityModal({ initialFood, onClose, onSave }: {
   const [customProtein, setCustomProtein] = useState(0)
   const [customCarbs, setCustomCarbs] = useState(0)
   const [customFat, setCustomFat] = useState(0)
+  const [foodQuery, setFoodQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<FoodSearchResult[]>([])
+  const [searchedFood, setSearchedFood] = useState<FoodOption | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [searchError, setSearchError] = useState('')
   const [error, setError] = useState('')
-  const selectedFood = foods.find((food) => food.name === foodName)
+  const selectedFood = (searchedFood?.name === foodName ? searchedFood : null)
+    ?? foods.find((food) => food.name === foodName)
+    ?? (initialFood?.name === foodName ? initialFood : null)
   const isCustom = foodName === 'custom'
   const baseNutrition = isCustom
     ? { calories: customCalories, protein: customProtein, carbs: customCarbs, fat: customFat }
     : selectedFood
   const safeQuantity = Number.isFinite(quantity) ? quantity : 0
-  const totals = baseNutrition && safeQuantity > 0 ? {
-    calories: Math.round(baseNutrition.calories * safeQuantity),
-    protein: Math.round(baseNutrition.protein * safeQuantity * 10) / 10,
-    carbs: Math.round(baseNutrition.carbs * safeQuantity * 10) / 10,
-    fat: Math.round(baseNutrition.fat * safeQuantity * 10) / 10,
-  } : null
+  const nutritionValues = baseNutrition
+    ? [baseNutrition.calories, baseNutrition.protein, baseNutrition.carbs, baseNutrition.fat]
+    : []
+  const validNutrition = nutritionValues.every((value) => Number.isFinite(value) && value >= 0)
+  const totals = baseNutrition && validNutrition && safeQuantity > 0
+    ? scaleNutrition(baseNutrition, safeQuantity, selectedFood?.source ? 100 : 1)
+    : null
+
+  async function searchFoods() {
+    const query = foodQuery.trim()
+    if (query.length < 2) {
+      setSearchError('Enter at least 2 characters to search.')
+      return
+    }
+    setSearching(true)
+    setSearchError('')
+    setSearchResults([])
+    try {
+      const url = new URL(`${API_URL}/foods/search`)
+      url.searchParams.set('q', query)
+      const response = await fetch(url, { headers: { Accept: 'application/json' } })
+      const payload = await response.json() as { error?: string; products?: unknown }
+      if (!response.ok) throw new Error(payload.error ?? `Food search failed (HTTP ${response.status}). Try again or enter nutrition manually.`)
+      if (!Array.isArray(payload.products)) throw new Error('The food database returned an unexpected response. Try again or enter nutrition manually.')
+      const normalized = payload.products
+        .map(normalizeOpenFoodFactsProduct)
+        .filter((product): product is FoodSearchResult => product !== null)
+      setSearchResults(normalized)
+      if (normalized.length === 0) setSearchError('No complete nutrition records found. Try another search or enter the nutrition manually.')
+    } catch (searchFailure) {
+      setSearchError(searchFailure instanceof TypeError
+        ? 'Could not reach the FitTrack API. Start the API or enter nutrition manually.'
+        : searchFailure instanceof Error ? searchFailure.message : 'Food search is unavailable. Try again or enter nutrition manually.')
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  function selectSearchResult(result: FoodSearchResult) {
+    const food: FoodOption = {
+      name: result.brand ? `${result.name} (${result.brand})` : result.name,
+      description: 'Open Food Facts · nutrition per 100 g',
+      calories: result.calories,
+      protein: result.protein,
+      carbs: result.carbs,
+      fat: result.fat,
+      tags: ['Database result'],
+      kind: '🥫',
+      serving: '100 g',
+      servingUnit: 'g',
+      source: 'Open Food Facts',
+    }
+    setSearchedFood(food)
+    setFoodName(food.name)
+    setQuantity(100)
+    setError('')
+  }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!baseNutrition || !Number.isFinite(quantity) || quantity <= 0 || quantity > 100 ||
+    if (!baseNutrition || !Number.isFinite(quantity) || quantity <= 0 || quantity > (selectedFood?.source ? 1000 : 100) ||
       [baseNutrition.calories, baseNutrition.protein, baseNutrition.carbs, baseNutrition.fat].some((value) => !Number.isFinite(value) || value < 0)) {
-      setError('Choose a food and enter a quantity greater than 0 (up to 100 servings).')
+      setError(`Choose a food and enter a quantity greater than 0 (up to ${selectedFood?.source ? '1,000 g' : '100 servings'}).`)
       return
     }
     const name = isCustom ? customName.trim() : selectedFood?.name
@@ -644,7 +721,7 @@ function FoodQuantityModal({ initialFood, onClose, onSave }: {
       setError('Enter a food name and serving description.')
       return
     }
-    const serving = isCustom ? customServing.trim() : selectedFood?.serving ?? '1 serving'
+    const serving = isCustom ? customServing.trim() : selectedFood?.source ? '100 g (Open Food Facts)' : selectedFood?.serving ?? '1 serving'
     const servingUnit = isCustom ? 'serving' : selectedFood?.servingUnit ?? 'serving'
     if (!totals) {
       setError('Enter a valid quantity to calculate nutrition.')
@@ -657,13 +734,17 @@ function FoodQuantityModal({ initialFood, onClose, onSave }: {
   }
 
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="entry-modal food-quantity-modal" role="dialog" aria-modal="true" aria-labelledby="food-modal-title"><div className="modal-heading"><div><span className="card-overline">FOOD DIARY</span><h2 id="food-modal-title">Add food & quantity</h2></div><button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={19} /></button></div>
-    <p className="modal-description">Choose a food and serving amount. Nutrition totals update automatically from the reference serving.</p>
+    <p className="modal-description">Search a food database, choose a familiar meal, or enter nutrition manually. Values are estimates and vary by product.</p>
     <form onSubmit={handleSubmit}>
-      <label>Food<select value={foodName} onChange={(event) => { setFoodName(event.target.value); setError('') }} autoFocus><option value="">Choose a food</option>{foods.map((food) => <option value={food.name} key={food.name}>{food.name} — {food.serving}</option>)}<option value="custom">Custom food / not listed</option></select></label>
+      <div className="food-search-box"><label htmlFor="food-search">Search foods</label><div className="food-search-form"><input id="food-search" value={foodQuery} onChange={(event) => setFoodQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void searchFoods() } }} placeholder="e.g. Greek yogurt, oats, apple" /><button className="food-search-button" type="button" onClick={() => void searchFoods()} disabled={searching}>{searching ? 'Searching…' : <><Search size={15} /> Search</>}</button></div><span className="food-data-credit">Search powered by <a href="https://world.openfoodfacts.org/" target="_blank" rel="noreferrer">Open Food Facts</a>. Complete products show nutrition per 100 g.</span>
+        {searchError && <div className="food-search-message" role="status">{searchError}</div>}
+        {searchResults.length > 0 && <div className="food-search-results" aria-label="Food search results">{searchResults.map((result, index) => <button type="button" key={`${result.id}-${index}`} onClick={() => selectSearchResult(result)}><span><strong>{result.name}</strong><small>{result.brand || 'No brand'} · per 100 g</small></span><span>{result.calories} kcal</span></button>)}</div>}
+      </div>
+      <label>Food<select value={foodName} onChange={(event) => { setFoodName(event.target.value); setSearchedFood(null); setQuantity(1); setError('') }} autoFocus><option value="">Choose a food</option>{foods.map((food) => <option value={food.name} key={food.name}>{food.name} — {food.serving}</option>)}{selectedFood?.source && <option value={selectedFood.name}>{selectedFood.name} — per 100 g</option>}<option value="custom">Custom food / not listed</option></select></label>
       {isCustom && <><label>Food name<input value={customName} onChange={(event) => setCustomName(event.target.value)} placeholder="e.g. Homemade vegetable curry" /></label><label>Reference serving<input value={customServing} onChange={(event) => setCustomServing(event.target.value)} placeholder="e.g. 1 bowl (250 g)" /></label><div className="form-grid custom-nutrition-fields"><label>Calories <span>kcal per serving</span><input type="number" min="0" value={customCalories} onChange={(event) => setCustomCalories(Number(event.target.value))} /></label><label>Protein <span>g per serving</span><input type="number" min="0" step="0.1" value={customProtein} onChange={(event) => setCustomProtein(Number(event.target.value))} /></label><label>Carbs <span>g per serving</span><input type="number" min="0" step="0.1" value={customCarbs} onChange={(event) => setCustomCarbs(Number(event.target.value))} /></label><label>Fat <span>g per serving</span><input type="number" min="0" step="0.1" value={customFat} onChange={(event) => setCustomFat(Number(event.target.value))} /></label></div></>}
       {selectedFood && <div className="reference-serving"><Utensils size={14} /><span>Reference serving: <strong>{selectedFood.serving}</strong></span><span className="approximate-label">Approximate</span></div>}
-      <div className="form-grid quantity-form-row"><label>Quantity <span>servings</span><input type="number" min="0.1" max="100" step="0.1" value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} /></label><label>Meal type<select value={mealType} onChange={(event) => setMealType(event.target.value)}><option>Breakfast</option><option>Lunch</option><option>Dinner</option><option>Snack</option></select></label></div>
-      {totals && <div className="nutrition-calculation"><div className="calculation-heading"><span>Estimated total</span><span>{quantity} × {isCustom ? customServing : selectedFood?.serving}</span></div><div className="calculation-calories"><Flame size={16} /><strong>{totals.calories}</strong><span>kcal</span></div><div className="calculation-macros"><span><i className="macro-dot violet" />Protein <strong>{totals.protein}g</strong></span><span><i className="macro-dot orange" />Carbs <strong>{totals.carbs}g</strong></span><span><i className="macro-dot yellow" />Fat <strong>{totals.fat}g</strong></span></div></div>}
+      <div className="form-grid quantity-form-row"><label>Quantity <span>{selectedFood?.source ? 'grams' : 'servings'}</span><input type="number" min="0.1" max={selectedFood?.source ? '1000' : '100'} step={selectedFood?.source ? '1' : '0.1'} value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} /></label><label>Meal type<select value={mealType} onChange={(event) => setMealType(event.target.value)}><option>Breakfast</option><option>Lunch</option><option>Dinner</option><option>Snack</option></select></label></div>
+      {totals && <div className="nutrition-calculation"><div className="calculation-heading"><span>Estimated total</span><span>{quantity} {selectedFood?.source ? 'g' : `× ${isCustom ? customServing : selectedFood?.serving}`}</span></div><div className="calculation-calories"><Flame size={16} /><strong>{totals.calories}</strong><span>kcal</span></div><div className="calculation-macros"><span><i className="macro-dot violet" />Protein <strong>{totals.protein}g</strong></span><span><i className="macro-dot orange" />Carbs <strong>{totals.carbs}g</strong></span><span><i className="macro-dot yellow" />Fat <strong>{totals.fat}g</strong></span></div></div>}
       {error && <div className="form-error" role="alert">{error}</div>}
       <div className="modal-actions"><button type="button" className="cancel-button" onClick={onClose}>Cancel</button><button type="submit" className="primary-button"><Plus size={15} /> Add to diary</button></div>
     </form>

@@ -100,6 +100,7 @@ All API routes are under `/api`.
 | `POST` | `/auth/login` | Start a session |
 | `POST` | `/auth/logout` | Revoke the browser session cookie |
 | `GET` | `/auth/me` | Current user and profile |
+| `GET` | `/foods/search?q=...` | Rate-limited search of Open Food Facts product data |
 | `GET` | `/dashboard` | Profile, active goal, recent workouts, today's meals, recent weights |
 | `GET`, `POST` | `/workouts` | Read and record user workouts |
 | `GET`, `POST` | `/meals` | Read and record daily food entries |
@@ -117,7 +118,7 @@ Session cookies are opaque, HttpOnly, short-lived, SameSite strict, and Secure i
 - **Calorie estimate:** Mifflin–St Jeor basal metabolic rate with an activity multiplier, then a modest goal adjustment (+200 kcal for gain, −300 kcal for loss). It is a starting estimate, not medical advice.
 - **Plateau signal:** Requires at least five comparable sessions and compares the average estimated strength of the first two and last two sessions. A change within ±2% is described as a possible plateau, not a diagnosis.
 - **Data quality:** A completeness indicator describes logged history volume. It is not a scientifically validated confidence score.
-- **Meal ideas:** The UI uses a curated starter list and clearly treats nutrients as estimates.
+- **Meal ideas:** Suggested meals include ingredients and preparation steps. The food logger searches Open Food Facts through the API server for complete per-100 g nutrition records; community data may be incomplete or inaccurate, and custom foods can be entered manually if a match is unavailable. The API server must be running for external food search.
 
 ## Quality checks
 
@@ -135,4 +136,4 @@ Deploy the Vite build as a static site and the compiled API (`server/dist/index.
 
 ## Scope and limitations
 
-This is a working end-term MVP, not a claim that every optional feature in the project brief is complete. It currently does not include password reset, refresh tokens, photo uploads, PDF reports, external food APIs, full exercise-library/set-entry UI, meal saving, recovery journals, calendar scheduling, or scenario simulation. Insights emphasize data quality and consistency; the broader nutrition, plateau, and report calculations are not yet wired into dashboard recommendations. Demo-mode changes are browser-local; authenticated records use PostgreSQL.
+This is a working end-term MVP, not a claim that every optional feature in the project brief is complete. It currently does not include password reset, refresh tokens, photo uploads, PDF reports, full exercise-library/set-entry UI, meal saving, recovery journals, calendar scheduling, or scenario simulation. Food search depends on the public Open Food Facts service and its available product data; it does not guarantee a match for every food. Insights emphasize data quality and consistency; the broader nutrition, plateau, and report calculations are not yet wired into dashboard recommendations. Demo-mode changes are browser-local; authenticated records use PostgreSQL.
