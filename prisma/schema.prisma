@@ -1,0 +1,156 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum FitnessGoal {
+  MUSCLE_GAIN
+  FAT_LOSS
+  MAINTENANCE
+  RECOMPOSITION
+}
+
+enum MealType {
+  BREAKFAST
+  LUNCH
+  DINNER
+  SNACK
+}
+
+enum InsightStatus {
+  PENDING
+  ACCEPTED
+  DISMISSED
+  COMPLETED
+}
+
+model User {
+  id        String           @id @default(uuid()) @db.Uuid
+  email     String           @unique @db.VarChar(254)
+  name      String           @db.VarChar(80)
+  password  String           @db.VarChar(255)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  profile   Profile?
+  sessions  Session[]
+  goals     Goal[]
+  workouts  Workout[]
+  meals     MealEntry[]
+  weights   WeightLog[]
+  insights  FitnessInsight[]
+
+  @@index([createdAt])
+}
+
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  tokenHash String   @unique @db.Char(64)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
+}
+
+model Profile {
+  id            String       @id @default(uuid()) @db.Uuid
+  userId        String       @unique @db.Uuid
+  age           Int?
+  heightCm      Decimal?     @db.Decimal(5, 2)
+  activityLevel String?      @db.VarChar(24)
+  calorieTarget Int?
+  proteinTarget Int?
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  updatedAt     DateTime     @updatedAt
+}
+
+model Goal {
+  id          String      @id @default(uuid()) @db.Uuid
+  userId      String      @db.Uuid
+  type        FitnessGoal
+  title       String      @db.VarChar(100)
+  targetValue Decimal?    @db.Decimal(8, 2)
+  targetDate  DateTime?
+  active      Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, active])
+}
+
+model Workout {
+  id        String       @id @default(uuid()) @db.Uuid
+  userId    String       @db.Uuid
+  title     String       @db.VarChar(100)
+  focus     String       @default("Full body") @db.VarChar(120)
+  duration  Int
+  volumeKg  Int          @default(0)
+  notes     String?      @db.VarChar(1000)
+  startedAt DateTime     @default(now())
+  createdAt DateTime     @default(now())
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sets      WorkoutSet[]
+
+  @@index([userId, startedAt])
+}
+
+model WorkoutSet {
+  id        String   @id @default(uuid()) @db.Uuid
+  workoutId String   @db.Uuid
+  exercise  String   @db.VarChar(100)
+  setNumber Int
+  reps      Int
+  weightKg  Decimal  @db.Decimal(7, 2)
+  workout   Workout  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+
+  @@unique([workoutId, exercise, setNumber])
+}
+
+model MealEntry {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  name       String   @db.VarChar(120)
+  type       MealType @default(SNACK)
+  calories   Int
+  proteinG   Decimal  @db.Decimal(7, 2)
+  carbsG     Decimal  @db.Decimal(7, 2)
+  fatG       Decimal  @db.Decimal(7, 2)
+  eatenAt    DateTime @default(now())
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, eatenAt])
+}
+
+model WeightLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  weightKg   Decimal  @db.Decimal(6, 2)
+  recordedAt DateTime @default(now())
+  note       String?  @db.VarChar(500)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, recordedAt])
+}
+
+model FitnessInsight {
+  id          String        @id @default(uuid()) @db.Uuid
+  userId      String        @db.Uuid
+  category    String        @db.VarChar(40)
+  title       String        @db.VarChar(140)
+  explanation String        @db.VarChar(1200)
+  evidence    Json
+  confidence  String        @db.VarChar(24)
+  status      InsightStatus @default(PENDING)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, createdAt])
+}
