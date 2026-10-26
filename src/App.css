@@ -346,6 +346,12 @@ h1, h2, h3, p { margin-top: 0; }
 .food-search-results strong { color: #494955; font-weight: 600; }
 .food-search-results small { color: #9999a4; font-size: 8px; }
 .food-search-results button > span:last-child { flex: 0 0 auto; color: #7770c8; }
+.custom-food-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 6px; width: 100%; min-height: 36px; color: #7469db; border: 1px dashed #c9c3f4; background: #f8f7ff; border-radius: 7px; font-size: 9px; font-weight: 600; transition: background .15s ease, border-color .15s ease; }
+.custom-food-toggle:hover { border-color: #a59be9; background: #f0eeff; }
+.custom-food-editor { display: grid; gap: 10px; padding: 12px; border: 1px solid #e9e6fb; background: #fbfaff; border-radius: 8px; }
+.custom-food-editor > div:first-child { display: grid; gap: 3px; }
+.custom-food-editor > div:first-child strong { color: #55526f; font-size: 9px; }
+.custom-food-editor > div:first-child span { color: #92919f; font-size: 8px; }
 .reference-serving { display: flex; align-items: center; gap: 7px; min-height: 34px; padding: 7px 9px; color: #807d97; border: 1px solid #efedf8; background: #faf9ff; border-radius: 7px; font-size: 9px; }
 .reference-serving svg { color: #877be9; flex: 0 0 auto; }
 .reference-serving strong { color: #5c5875; font-weight: 600; }

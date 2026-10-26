@@ -20,6 +20,7 @@ type Section = 'Overview' | 'Workouts' | 'Nutrition' | 'Progress' | 'Intelligenc
 type Workout = { id: string; title: string; focus: string; date: string; duration: number; volume: number; complete: boolean }
 type Meal = { id: string; name: string; type: string; time: string; calories: number; protein: number; carbs: number; fat: number; quantity?: number; servingUnit?: string; serving?: string }
 type FoodOption = { name: string; description: string; calories: number; protein: number; carbs: number; fat: number; tags: string[]; kind: string; serving: string; servingUnit: string; ingredients?: string[]; steps?: string[]; prepMinutes?: number; source?: string }
+type SavedFood = Pick<FoodOption, 'name' | 'calories' | 'protein' | 'carbs' | 'fat' | 'serving'>
 type WeightEntry = { date: string; value: number }
 type ModalType = 'workout' | 'meal' | 'weight' | null
 
@@ -100,6 +101,7 @@ const navItems: { label: Section; icon: typeof Activity }[] = [
   { label: 'Meal builder', icon: Bike },
 ]
 const STORAGE_KEY = 'fittrack-pro-demo-v1'
+const CUSTOM_FOODS_KEY = 'fittrack-pro-custom-foods-v1'
 const calorieTarget = 2200
 const macroTarget = { protein: 145, carbs: 250, fat: 70 }
 
@@ -129,6 +131,26 @@ function readStoredData(): AppData {
   }
 }
 
+function readCustomFoods(): SavedFood[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_FOODS_KEY)
+    if (!raw) return []
+    const saved = JSON.parse(raw) as unknown
+    if (!Array.isArray(saved)) throw new Error('Saved custom foods must be a list')
+    return saved.filter((food: unknown): food is SavedFood => {
+      if (typeof food !== 'object' || food === null) return false
+      const candidate = food as Record<string, unknown>
+      return typeof candidate.name === 'string' && candidate.name.trim().length > 0 &&
+        typeof candidate.serving === 'string' && candidate.serving.trim().length > 0 &&
+        [candidate.calories, candidate.protein, candidate.carbs, candidate.fat]
+          .every((value) => typeof value === 'number' && Number.isFinite(value) && value >= 0)
+    })
+  } catch (error) {
+    console.error('Could not load saved custom foods:', error)
+    return []
+  }
+}
+
 function dateLabel() {
   return new Intl.DateTimeFormat('en', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())
 }
@@ -138,6 +160,7 @@ function App() {
   const location = useLocation()
   const section = sectionForPath(location.pathname)
   const [data, setData] = useState<AppData>(readStoredData)
+  const [customFoods, setCustomFoods] = useState<SavedFood[]>(readCustomFoods)
   const [modal, setModal] = useState<ModalType>(null)
   const [pendingFood, setPendingFood] = useState<FoodOption | null>(null)
   const [recipeFood, setRecipeFood] = useState<FoodOption | null>(null)
@@ -150,6 +173,10 @@ function App() {
   useEffect(() => {
     if (!localStorage.getItem('fittrack-account-connected')) localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
   }, [data])
+
+  useEffect(() => {
+    localStorage.setItem(CUSTOM_FOODS_KEY, JSON.stringify(customFoods))
+  }, [customFoods])
 
   useEffect(() => {
     if (!localStorage.getItem('fittrack-account-connected')) return
@@ -345,7 +372,7 @@ function App() {
       </main>
 
       {modal && modal !== 'meal' && <EntryModal type={modal} onClose={() => setModal(null)} onWorkout={(value) => { addWorkout(value); setModal(null) }} onWeight={(value) => { addWeight(value); setModal(null) }} />}
-      {modal === 'meal' && <FoodQuantityModal initialFood={pendingFood} onClose={() => setModal(null)} onSave={(meal) => { void addMeal(meal).then((saved) => { if (saved) { setModal(null); setPendingFood(null) } }) }} />}
+      {modal === 'meal' && <FoodQuantityModal initialFood={pendingFood} customFoods={customFoods} onClose={() => setModal(null)} onSave={(meal, customFood) => { void addMeal(meal).then((saved) => { if (saved) { if (customFood) setCustomFoods((current) => [...current.filter((food) => food.name.toLocaleLowerCase() !== customFood.name.toLocaleLowerCase()), customFood]); setModal(null); setPendingFood(null) } }) }} />}
       {recipeFood && <RecipeModal food={recipeFood} onClose={() => setRecipeFood(null)} onLog={(food) => { setRecipeFood(null); openFoodLogger(food) }} />}
       {accountModal && <AccountModal onClose={() => setAccountModal(false)} onSubmit={authenticate} />}
       {notice && <div className="toast" role="status"><span className="toast-check"><Check size={15} /></span>{notice}<button aria-label="Dismiss notification" onClick={() => setNotice('')}><X size={15} /></button></div>}
@@ -623,10 +650,11 @@ function EmptyState({ icon, title, text, action, onAction }: { icon: ReactNode; 
   return <div className="empty-state"><div className="empty-icon">{icon}</div><strong>{title}</strong><p>{text}</p>{action && onAction && <button className="text-button" onClick={onAction}>{action} <ArrowRight size={14} /></button>}</div>
 }
 
-function FoodQuantityModal({ initialFood, onClose, onSave }: {
+function FoodQuantityModal({ initialFood, customFoods, onClose, onSave }: {
   initialFood: FoodOption | null
+  customFoods: SavedFood[]
   onClose: () => void
-  onSave: (value: Omit<Meal, 'id' | 'time'>) => void
+  onSave: (value: Omit<Meal, 'id' | 'time'>, customFood?: SavedFood) => void
 }) {
   const [foodName, setFoodName] = useState(initialFood?.name ?? '')
   const [quantity, setQuantity] = useState(1)
@@ -643,8 +671,16 @@ function FoodQuantityModal({ initialFood, onClose, onSave }: {
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState('')
   const [error, setError] = useState('')
+  const savedFoodIndex = foodName.startsWith('custom-food:')
+    ? Number(foodName.slice('custom-food:'.length))
+    : -1
+  const savedFood = Number.isInteger(savedFoodIndex) ? customFoods[savedFoodIndex] : undefined
+  const selectedSavedFood: FoodOption | null = savedFood ? {
+    ...savedFood, description: 'Your saved food', tags: ['My food'], kind: '🥣', servingUnit: 'serving',
+  } : null
   const selectedFood = (searchedFood?.name === foodName ? searchedFood : null)
     ?? foods.find((food) => food.name === foodName)
+    ?? selectedSavedFood
     ?? (initialFood?.name === foodName ? initialFood : null)
   const isCustom = foodName === 'custom'
   const baseNutrition = isCustom
@@ -656,7 +692,12 @@ function FoodQuantityModal({ initialFood, onClose, onSave }: {
     : []
   const validNutrition = nutritionValues.every((value) => Number.isFinite(value) && value >= 0)
   const totals = baseNutrition && validNutrition && safeQuantity > 0
-    ? scaleNutrition(baseNutrition, safeQuantity, selectedFood?.source ? 100 : 1)
+    ? scaleNutrition({
+      calories: baseNutrition.calories,
+      protein: baseNutrition.protein,
+      carbs: baseNutrition.carbs,
+      fat: baseNutrition.fat,
+    }, safeQuantity, selectedFood?.source ? 100 : 1)
     : null
 
   async function searchFoods() {
@@ -727,21 +768,30 @@ function FoodQuantityModal({ initialFood, onClose, onSave }: {
       setError('Enter a valid quantity to calculate nutrition.')
       return
     }
+    const customFood = isCustom ? {
+      name,
+      serving,
+      calories: customCalories,
+      protein: customProtein,
+      carbs: customCarbs,
+      fat: customFat,
+    } : undefined
     onSave({
       name, type: mealType, quantity, servingUnit, serving,
       calories: totals.calories, protein: totals.protein, carbs: totals.carbs, fat: totals.fat,
-    })
+    }, customFood)
   }
 
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="entry-modal food-quantity-modal" role="dialog" aria-modal="true" aria-labelledby="food-modal-title"><div className="modal-heading"><div><span className="card-overline">FOOD DIARY</span><h2 id="food-modal-title">Add food & quantity</h2></div><button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={19} /></button></div>
-    <p className="modal-description">Search a food database, choose a familiar meal, or enter nutrition manually. Values are estimates and vary by product.</p>
+    <p className="modal-description">Choose a food, search the database, or add your own with the nutrition from its label. Your custom foods are saved on this device for next time.</p>
     <form onSubmit={handleSubmit}>
-      <div className="food-search-box"><label htmlFor="food-search">Search foods</label><div className="food-search-form"><input id="food-search" value={foodQuery} onChange={(event) => setFoodQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void searchFoods() } }} placeholder="e.g. Greek yogurt, oats, apple" /><button className="food-search-button" type="button" onClick={() => void searchFoods()} disabled={searching}>{searching ? 'Searching…' : <><Search size={15} /> Search</>}</button></div><span className="food-data-credit">Search powered by <a href="https://world.openfoodfacts.org/" target="_blank" rel="noreferrer">Open Food Facts</a>. Complete products show nutrition per 100 g.</span>
+      <div className="food-search-box"><label htmlFor="food-search">Search foods</label><div className="food-search-form"><input id="food-search" autoFocus={!isCustom} value={foodQuery} onChange={(event) => setFoodQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void searchFoods() } }} placeholder="e.g. Greek yogurt, oats, apple" /><button className="food-search-button" type="button" onClick={() => void searchFoods()} disabled={searching}>{searching ? 'Searching…' : <><Search size={15} /> Search</>}</button></div><span className="food-data-credit">Search powered by <a href="https://world.openfoodfacts.org/" target="_blank" rel="noreferrer">Open Food Facts</a>. Complete products show nutrition per 100 g.</span>
         {searchError && <div className="food-search-message" role="status">{searchError}</div>}
         {searchResults.length > 0 && <div className="food-search-results" aria-label="Food search results">{searchResults.map((result, index) => <button type="button" key={`${result.id}-${index}`} onClick={() => selectSearchResult(result)}><span><strong>{result.name}</strong><small>{result.brand || 'No brand'} · per 100 g</small></span><span>{result.calories} kcal</span></button>)}</div>}
       </div>
-      <label>Food<select value={foodName} onChange={(event) => { setFoodName(event.target.value); setSearchedFood(null); setQuantity(1); setError('') }} autoFocus><option value="">Choose a food</option>{foods.map((food) => <option value={food.name} key={food.name}>{food.name} — {food.serving}</option>)}{selectedFood?.source && <option value={selectedFood.name}>{selectedFood.name} — per 100 g</option>}<option value="custom">Custom food / not listed</option></select></label>
-      {isCustom && <><label>Food name<input value={customName} onChange={(event) => setCustomName(event.target.value)} placeholder="e.g. Homemade vegetable curry" /></label><label>Reference serving<input value={customServing} onChange={(event) => setCustomServing(event.target.value)} placeholder="e.g. 1 bowl (250 g)" /></label><div className="form-grid custom-nutrition-fields"><label>Calories <span>kcal per serving</span><input type="number" min="0" value={customCalories} onChange={(event) => setCustomCalories(Number(event.target.value))} /></label><label>Protein <span>g per serving</span><input type="number" min="0" step="0.1" value={customProtein} onChange={(event) => setCustomProtein(Number(event.target.value))} /></label><label>Carbs <span>g per serving</span><input type="number" min="0" step="0.1" value={customCarbs} onChange={(event) => setCustomCarbs(Number(event.target.value))} /></label><label>Fat <span>g per serving</span><input type="number" min="0" step="0.1" value={customFat} onChange={(event) => setCustomFat(Number(event.target.value))} /></label></div></>}
+      <label>Food<select value={foodName} onChange={(event) => { setFoodName(event.target.value); setSearchedFood(null); setQuantity(1); setError('') }}><option value="">Choose a food</option>{foods.map((food) => <option value={food.name} key={food.name}>{food.name} — {food.serving}</option>)}{customFoods.length > 0 && <optgroup label="My saved foods">{customFoods.map((food, index) => <option value={`custom-food:${index}`} key={`${food.name}-${index}`}>{food.name} — {food.serving}</option>)}</optgroup>}{selectedFood?.source && <option value={selectedFood.name}>{selectedFood.name} — per 100 g</option>}</select></label>
+      <button className="custom-food-toggle" type="button" onClick={() => { setFoodName(isCustom ? '' : 'custom'); setQuantity(1); setError('') }}><Plus size={14} /> {isCustom ? 'Choose a listed food instead' : 'Add your own food'}</button>
+      {isCustom && <div className="custom-food-editor"><div><strong>Enter nutrition per serving</strong><span>Use the nutrition label or your own estimate.</span></div><label>Food name<input value={customName} onChange={(event) => setCustomName(event.target.value)} placeholder="e.g. Homemade vegetable curry" /></label><label>Serving description<input value={customServing} onChange={(event) => setCustomServing(event.target.value)} placeholder="e.g. 1 bowl (250 g)" /></label><div className="form-grid custom-nutrition-fields"><label>Calories <span>kcal per serving</span><input type="number" min="0" max="10000" value={customCalories} onChange={(event) => setCustomCalories(Number(event.target.value))} /></label><label>Protein <span>g per serving</span><input type="number" min="0" max="1000" step="0.1" value={customProtein} onChange={(event) => setCustomProtein(Number(event.target.value))} /></label><label>Carbs <span>g per serving</span><input type="number" min="0" max="1000" step="0.1" value={customCarbs} onChange={(event) => setCustomCarbs(Number(event.target.value))} /></label><label>Fat <span>g per serving</span><input type="number" min="0" max="1000" step="0.1" value={customFat} onChange={(event) => setCustomFat(Number(event.target.value))} /></label></div></div>}
       {selectedFood && <div className="reference-serving"><Utensils size={14} /><span>Reference serving: <strong>{selectedFood.serving}</strong></span><span className="approximate-label">Approximate</span></div>}
       <div className="form-grid quantity-form-row"><label>Quantity <span>{selectedFood?.source ? 'grams' : 'servings'}</span><input type="number" min="0.1" max={selectedFood?.source ? '1000' : '100'} step={selectedFood?.source ? '1' : '0.1'} value={quantity} onChange={(event) => setQuantity(Number(event.target.value))} /></label><label>Meal type<select value={mealType} onChange={(event) => setMealType(event.target.value)}><option>Breakfast</option><option>Lunch</option><option>Dinner</option><option>Snack</option></select></label></div>
       {totals && <div className="nutrition-calculation"><div className="calculation-heading"><span>Estimated total</span><span>{quantity} {selectedFood?.source ? 'g' : `× ${isCustom ? customServing : selectedFood?.serving}`}</span></div><div className="calculation-calories"><Flame size={16} /><strong>{totals.calories}</strong><span>kcal</span></div><div className="calculation-macros"><span><i className="macro-dot violet" />Protein <strong>{totals.protein}g</strong></span><span><i className="macro-dot orange" />Carbs <strong>{totals.carbs}g</strong></span><span><i className="macro-dot yellow" />Fat <strong>{totals.fat}g</strong></span></div></div>}

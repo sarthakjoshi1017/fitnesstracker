@@ -118,7 +118,7 @@ Session cookies are opaque, HttpOnly, short-lived, SameSite strict, and Secure i
 - **Calorie estimate:** Mifflin–St Jeor basal metabolic rate with an activity multiplier, then a modest goal adjustment (+200 kcal for gain, −300 kcal for loss). It is a starting estimate, not medical advice.
 - **Plateau signal:** Requires at least five comparable sessions and compares the average estimated strength of the first two and last two sessions. A change within ±2% is described as a possible plateau, not a diagnosis.
 - **Data quality:** A completeness indicator describes logged history volume. It is not a scientifically validated confidence score.
-- **Meal ideas:** Suggested meals include ingredients and preparation steps. The food logger searches Open Food Facts through the API server for complete per-100 g nutrition records; community data may be incomplete or inaccurate, and custom foods can be entered manually if a match is unavailable. The API server must be running for external food search.
+- **Meal ideas and food logging:** Suggested meals include ingredients and preparation steps. The food logger searches Open Food Facts through the API server for complete per-100 g nutrition records; community data may be incomplete or inaccurate. You can also add any food by entering its name, serving size, and label nutrition, then reuse it from **My saved foods**. Custom food definitions are stored in the current browser, including when logged into an account. The API server must be running for external food search.
 
 ## Quality checks
 
