@@ -2,7 +2,7 @@
 
 FitTrack Pro is a fitness and nutrition tracking app for people who want to understand their patterns, not just collect numbers. The product brings training, food logging, bodyweight trends, and explainable data-quality guidance into one responsive workspace.
 
-> **Demo mode:** The first screen is intentionally populated with clearly labeled sample data so the product can be explored without an account or database. Demo edits are saved in this browser only. Create an account to use PostgreSQL-backed records.
+> **Authentication required:** Every app route requires a signed-in account. On startup, FitTrack Pro checks the server for an existing session; otherwise it shows the sign-in/create-account screen. Fitness records are loaded from PostgreSQL and scoped to the authenticated user.
 
 ## Product and users
 
@@ -15,14 +15,15 @@ FitTrack Pro is a fitness and nutrition tracking app for people who want to unde
 ## Implemented workflows
 
 - Browse a responsive dashboard with a weekly activity summary, food intake, macro totals, and weight trend.
-- Record workouts and bodyweight with client-side validation and success/error feedback. Food logging asks for a food and quantity, then scales the reference calories and macros automatically; custom foods can be entered per serving.
+- Record workouts, targeted muscles, direct working sets, soreness, and an optional tracked top set; record bodyweight with client-side validation and success/error feedback. Food logging asks for a food and quantity, then scales the reference calories and macros automatically; custom foods can be entered per serving.
 - Filter workout history and nutrition entries; search workouts and curated meal ideas.
 - Build a meal from a curated set of familiar foods and log a chosen quantity to the nutrition diary. Nutrition values are approximate.
 - Review bodyweight history and complete/dismiss local insight cards.
-- Register and sign in through the Express API. Authenticated workout, food, and weight entries are stored in PostgreSQL and scoped to the signed-in user.
+- Review a 3D-style muscle-load map, weekly set counts, soreness signals, and same-lift estimated-strength changes. Explore editable 4-, 8-, and 12-week calorie, training-frequency, attendance, and protein scenarios in the Fitness Time Machine.
+- Register or sign in through the Express API before accessing any app page. Sessions are restored securely on reload; workout, food, and weight entries are stored in PostgreSQL and scoped to the signed-in user.
 - Use rule-based backend helpers for session volume, Epley estimated 1RM, moving averages, starting calorie estimates, plateau checks, and data-quality summaries.
 
-The demo workspace is a browser-only demonstration. The app does not pretend those sample records belong to a newly registered user. An account with no records receives empty states.
+An account with no records receives empty states. Signing out returns to the authentication screen; no dashboard or sample fitness data is shown while signed out.
 
 ## Technology
 
@@ -36,7 +37,7 @@ The demo workspace is a browser-only demonstration. The app does not pretend tho
 ```text
 React/Vite client
   ├─ Dashboard and tracking pages
-  ├─ Demo data stored in browser localStorage
+  ├─ Authentication gate and session restoration
   └─ Authenticated requests using an HttpOnly session cookie
        ↓
 Express REST API (/api)
@@ -60,7 +61,15 @@ npm install
 cp .env.example .env
 ```
 
-Set a private PostgreSQL `DATABASE_URL` and a random `SESSION_SECRET` of at least 32 characters in `.env`. Then initialize and start the app:
+For a local PostgreSQL server on macOS, install and start PostgreSQL, then create the app database:
+
+```sh
+brew install postgresql@16
+brew services start postgresql@16
+createdb fittrack_pro
+```
+
+Set `DATABASE_URL` to your PostgreSQL connection and set `SESSION_SECRET` to a private random value (generate one with `openssl rand -hex 32`) in `.env`. The `CLIENT_URL` and `VITE_API_URL` values must match the browser host you use (`localhost` or `127.0.0.1`). Then initialize and start the app:
 
 ```sh
 npm run db:generate
@@ -68,7 +77,7 @@ npm run db:migrate
 npm run dev:all
 ```
 
-The client starts at `http://localhost:5173`; the API listens on `http://localhost:3001`. To run only the UI, use `npm run dev`. Demo mode remains available without a database or API.
+The client starts at `http://localhost:5173`; the API listens on `http://localhost:3001`. The API and configured database are required to register or sign in. The client can be started separately with `npm run dev`, but it will remain at the authentication screen until the API is available.
 
 ### Optional demo account seed
 
@@ -118,6 +127,8 @@ Session cookies are opaque, HttpOnly, short-lived, SameSite strict, and Secure i
 - **Calorie estimate:** Mifflin–St Jeor basal metabolic rate with an activity multiplier, then a modest goal adjustment (+200 kcal for gain, −300 kcal for loss). It is a starting estimate, not medical advice.
 - **Plateau signal:** Requires at least five comparable sessions and compares the average estimated strength of the first two and last two sessions. A change within ±2% is described as a possible plateau, not a diagnosis.
 - **Data quality:** A completeness indicator describes logged history volume. It is not a scientifically validated confidence score.
+- **Muscle intelligence:** Weekly counts include explicitly logged direct working sets only; older focus-only workouts are not guessed. Recovery suggestions combine logged sets, days since training, self-reported soreness, and same-lift Epley estimates. The broad 6–18-set planning reference is not medical advice.
+- **Fitness Time Machine:** Uses a static 7,700 kcal/kg energy-balance approximation with conservative, typical, and optimistic adherence factors. It assumes the entered maintenance estimate and training pattern persist, and does not model individual adaptation or predict physique.
 - **Meal ideas and food logging:** Suggested meals include ingredients and preparation steps. The food logger searches Open Food Facts through the API server for complete per-100 g nutrition records; community data may be incomplete or inaccurate. You can also add any food by entering its name, serving size, and label nutrition, then reuse it from **My saved foods**. Custom food definitions are stored in the current browser, including when logged into an account. The API server must be running for external food search.
 
 ## Quality checks
@@ -136,4 +147,4 @@ Deploy the Vite build as a static site and the compiled API (`server/dist/index.
 
 ## Scope and limitations
 
-This is a working end-term MVP, not a claim that every optional feature in the project brief is complete. It currently does not include password reset, refresh tokens, photo uploads, PDF reports, full exercise-library/set-entry UI, meal saving, recovery journals, calendar scheduling, or scenario simulation. Food search depends on the public Open Food Facts service and its available product data; it does not guarantee a match for every food. Insights emphasize data quality and consistency; the broader nutrition, plateau, and report calculations are not yet wired into dashboard recommendations. Demo-mode changes are browser-local; authenticated records use PostgreSQL.
+This is a working end-term MVP, not a claim that every optional feature in the project brief is complete. It currently does not include password reset, refresh tokens, photo uploads, PDF reports, a full exercise-library/set-entry UI, meal saving, recovery journals, or calendar scheduling. Food search depends on the public Open Food Facts service and its available product data; it does not guarantee a match for every food. Insights emphasize data quality and consistency; the broader nutrition, plateau, and report calculations are not yet wired into dashboard recommendations. Demo-mode changes are browser-local; authenticated workout and muscle-history records use PostgreSQL.

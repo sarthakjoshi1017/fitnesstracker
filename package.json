@@ -16,7 +16,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "build": "tsc -b && vite build && npm run build:api",
     "lint": "oxlint",
-    "test": "tsx --test tests/nutrition.test.ts server/src/**/*.test.ts",
+    "test": "tsx --test tests/*.test.ts server/src/**/*.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -12,12 +12,15 @@ import {
 import { Doughnut, Line } from 'react-chartjs-2'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { normalizeOpenFoodFactsProduct, scaleNutrition, type FoodSearchResult } from './nutrition'
+import { calculateMuscleMetrics, MUSCLE_GROUPS, projectFitnessScenario, type MuscleGroup } from './fitness-intelligence'
+import { getStartOfWeek, getWorkoutTime, getWorkoutsForWeek } from './dashboard-period'
 import './App.css'
 
 ChartJS.register(ArcElement, CategoryScale, Filler, Legend, LinearScale, LineElement, PointElement, Tooltip)
 
-type Section = 'Overview' | 'Workouts' | 'Nutrition' | 'Progress' | 'Intelligence' | 'Meal builder'
-type Workout = { id: string; title: string; focus: string; date: string; duration: number; volume: number; complete: boolean }
+type Section = 'Overview' | 'Workouts' | 'Nutrition' | 'Progress' | 'Intelligence' | 'Meal builder' | 'Time machine'
+type MuscleDetail = { muscleGroup: MuscleGroup; workingSets: number; soreness: number; liftName?: string; topSetWeightKg?: number; topSetReps?: number }
+type Workout = { id: string; title: string; focus: string; date: string; loggedAt?: string; duration: number; volume: number; complete: boolean; muscleDetails?: MuscleDetail[] }
 type Meal = { id: string; name: string; type: string; time: string; calories: number; protein: number; carbs: number; fat: number; quantity?: number; servingUnit?: string; serving?: string }
 type FoodOption = { name: string; description: string; calories: number; protein: number; carbs: number; fat: number; tags: string[]; kind: string; serving: string; servingUnit: string; ingredients?: string[]; steps?: string[]; prepMinutes?: number; source?: string }
 type SavedFood = Pick<FoodOption, 'name' | 'calories' | 'protein' | 'carbs' | 'fat' | 'serving'>
@@ -30,7 +33,7 @@ type Account = { id?: string; name: string; email: string }
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api'
 const SECTION_PATHS: Record<Section, string> = {
   Overview: '/', Workouts: '/workouts', Nutrition: '/nutrition', Progress: '/progress',
-  Intelligence: '/intelligence', 'Meal builder': '/meals',
+  Intelligence: '/intelligence', 'Meal builder': '/meals', 'Time machine': '/time-machine',
 }
 
 function sectionForPath(path: string): Section {
@@ -42,7 +45,7 @@ async function loadAccountData(): Promise<AppData> {
   const payload = await response.json() as {
     error?: string
     profile: { calorieTarget: number | null; proteinTarget: number | null } | null
-    workouts: Array<{ id: string; title: string; focus: string; duration: number; volumeKg: number; startedAt: string }>
+    workouts: Array<{ id: string; title: string; focus: string; duration: number; volumeKg: number; startedAt: string; muscleDetails?: Array<Omit<MuscleDetail, 'topSetWeightKg'> & { topSetWeightKg?: number | string | null }> }>
     meals: Array<{ id: string; name: string; type: string; quantity: string | number; servingUnit: string; servingDescription: string; calories: number; proteinG: string | number; carbsG: string | number; fatG: string | number; eatenAt: string }>
     weights: Array<{ id: string; weightKg: string | number; recordedAt: string }>
   }
@@ -54,7 +57,15 @@ async function loadAccountData(): Promise<AppData> {
     fatTarget: null,
     workouts: payload.workouts.map((workout) => ({
       id: workout.id, title: workout.title, focus: workout.focus, duration: workout.duration,
-      volume: workout.volumeKg, date: new Date(workout.startedAt).toLocaleDateString(), complete: true,
+      volume: workout.volumeKg, date: new Date(workout.startedAt).toLocaleDateString(), loggedAt: workout.startedAt,
+      complete: true, muscleDetails: (workout.muscleDetails ?? []).map((detail) => ({
+        muscleGroup: detail.muscleGroup,
+        workingSets: detail.workingSets,
+        soreness: detail.soreness,
+        ...(detail.liftName ? { liftName: detail.liftName } : {}),
+        ...(detail.topSetWeightKg == null ? {} : { topSetWeightKg: Number(detail.topSetWeightKg) }),
+        ...(detail.topSetReps == null ? {} : { topSetReps: detail.topSetReps }),
+      })),
     })),
     meals: payload.meals.map((meal) => ({
       id: meal.id, name: meal.name, type: meal.type.toLowerCase().replace(/^./, (char) => char.toUpperCase()),
@@ -69,29 +80,6 @@ async function loadAccountData(): Promise<AppData> {
   }
 }
 
-const sampleData: AppData = {
-  calorieTarget: 2200,
-  proteinTarget: 145,
-  carbsTarget: 250,
-  fatTarget: 70,
-  workouts: [
-    { id: 'w-1', title: 'Upper body strength', focus: 'Chest · Back · Shoulders', date: 'Today, 8:24 AM', duration: 58, volume: 6840, complete: true },
-    { id: 'w-2', title: 'Lower body', focus: 'Quads · Glutes · Hamstrings', date: 'Yesterday, 6:10 PM', duration: 52, volume: 8920, complete: true },
-    { id: 'w-3', title: 'Pull day', focus: 'Back · Biceps · Rear delts', date: 'Mon, Oct 24', duration: 49, volume: 6210, complete: true },
-  ],
-  meals: [
-    { id: 'm-1', name: 'Greek yogurt & berries', type: 'Breakfast', time: '8:15 AM', calories: 320, protein: 28, carbs: 38, fat: 6 },
-    { id: 'm-2', name: 'Chicken rice bowl', type: 'Lunch', time: '12:40 PM', calories: 640, protein: 46, carbs: 72, fat: 16 },
-    { id: 'm-3', name: 'Protein shake', type: 'Snack', time: '3:25 PM', calories: 180, protein: 30, carbs: 8, fat: 3 },
-  ],
-  weights: [
-    { date: 'Oct 20', value: 72.8 }, { date: 'Oct 21', value: 72.7 },
-    { date: 'Oct 22', value: 72.9 }, { date: 'Oct 23', value: 72.5 },
-    { date: 'Oct 24', value: 72.6 }, { date: 'Oct 25', value: 72.4 },
-    { date: 'Today', value: 72.4 },
-  ],
-}
-
 const navItems: { label: Section; icon: typeof Activity }[] = [
   { label: 'Overview', icon: Activity },
   { label: 'Workouts', icon: Dumbbell },
@@ -99,11 +87,9 @@ const navItems: { label: Section; icon: typeof Activity }[] = [
   { label: 'Progress', icon: TrendingUp },
   { label: 'Intelligence', icon: Sparkles },
   { label: 'Meal builder', icon: Bike },
+  { label: 'Time machine', icon: Clock3 },
 ]
-const STORAGE_KEY = 'fittrack-pro-demo-v1'
 const CUSTOM_FOODS_KEY = 'fittrack-pro-custom-foods-v1'
-const calorieTarget = 2200
-const macroTarget = { protein: 145, carbs: 250, fat: 70 }
 
 const foods: FoodOption[] = [
   { name: 'Paneer power bowl', description: 'Paneer · brown rice · spinach', calories: 520, protein: 32, carbs: 58, fat: 18, tags: ['Vegetarian', 'High protein'], kind: '🥗', serving: '1 bowl', servingUnit: 'bowl', prepMinutes: 15, ingredients: ['120 g paneer, cubed', '¾ cup cooked brown rice', '1 cup baby spinach', '½ cup bell pepper, sliced', '1 tsp olive oil', 'Lemon, salt, pepper, and cumin'], steps: ['Warm the olive oil in a pan. Season and sear the paneer until golden on both sides.', 'Add the bell pepper and cook for 3–4 minutes until just tender. Fold in the spinach until wilted.', 'Serve over warm brown rice. Finish with lemon juice and a pinch of cumin.'] },
@@ -121,15 +107,6 @@ const foods: FoodOption[] = [
   { name: 'Oats', description: 'Dry rolled oats', calories: 150, protein: 5, carbs: 27, fat: 3, tags: ['Vegetarian', 'Staple'], kind: '🥣', serving: '40 g', servingUnit: '40 g' },
   { name: 'Greek yogurt', description: 'Plain, unsweetened yogurt', calories: 100, protein: 17, carbs: 6, fat: 0.7, tags: ['Vegetarian', 'High protein'], kind: '🥛', serving: '170 g cup', servingUnit: 'cup' },
 ]
-
-function readStoredData(): AppData {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? { ...sampleData, ...JSON.parse(raw) as Partial<AppData> } : sampleData
-  } catch {
-    return sampleData
-  }
-}
 
 function readCustomFoods(): SavedFood[] {
   try {
@@ -151,47 +128,54 @@ function readCustomFoods(): SavedFood[] {
   }
 }
 
-function dateLabel() {
-  return new Intl.DateTimeFormat('en', { weekday: 'long', month: 'long', day: 'numeric' }).format(new Date())
+function dateLabel(date: Date) {
+  return new Intl.DateTimeFormat('en', { weekday: 'long', month: 'long', day: 'numeric' }).format(date)
 }
 
 function App() {
+  const [currentDate] = useState(() => new Date())
   const navigate = useNavigate()
   const location = useLocation()
   const section = sectionForPath(location.pathname)
-  const [data, setData] = useState<AppData>(readStoredData)
+  const [data, setData] = useState<AppData>({ workouts: [], meals: [], weights: [] })
   const [customFoods, setCustomFoods] = useState<SavedFood[]>(readCustomFoods)
   const [modal, setModal] = useState<ModalType>(null)
   const [pendingFood, setPendingFood] = useState<FoodOption | null>(null)
   const [recipeFood, setRecipeFood] = useState<FoodOption | null>(null)
-  const [accountModal, setAccountModal] = useState(false)
   const [account, setAccount] = useState<Account | null>(null)
+  const [authChecked, setAuthChecked] = useState(false)
+  const [authError, setAuthError] = useState('')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [notice, setNotice] = useState('')
   const [completedActions, setCompletedActions] = useState<string[]>([])
-
-  useEffect(() => {
-    if (!localStorage.getItem('fittrack-account-connected')) localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
-  }, [data])
 
   useEffect(() => {
     localStorage.setItem(CUSTOM_FOODS_KEY, JSON.stringify(customFoods))
   }, [customFoods])
 
   useEffect(() => {
-    if (!localStorage.getItem('fittrack-account-connected')) return
-    void fetch(`${API_URL}/auth/me`, { credentials: 'include' }).then(async (response) => {
-      const result = await response.json() as { error?: string; user?: Account }
-      if (!response.ok || !result.user) throw new Error(result.error ?? 'Your session has expired')
-      const loaded = await loadAccountData()
-      setData(loaded)
-      setAccount(result.user)
-    }).catch((error: unknown) => {
-      localStorage.removeItem('fittrack-account-connected')
-      setAccount(null)
-      setData(readStoredData())
-      setNotice(error instanceof Error ? error.message : 'Could not reconnect to your account')
-    })
+    let active = true
+    async function restoreSession() {
+      try {
+        const response = await fetch(`${API_URL}/auth/me`, { credentials: 'include' })
+        if (response.status === 401) return
+        const result = await response.json() as { error?: string; user?: Account }
+        if (!response.ok || !result.user) throw new Error(result.error ?? 'Could not verify your account')
+        const loaded = await loadAccountData()
+        if (active) {
+          setData(loaded)
+          setAccount(result.user)
+        }
+      } catch (error) {
+        if (active) setAuthError(error instanceof TypeError
+          ? 'The account service is unavailable. Start the API server and try again.'
+          : error instanceof Error ? error.message : 'Could not verify your account')
+      } finally {
+        if (active) setAuthChecked(true)
+      }
+    }
+    void restoreSession()
+    return () => { active = false }
   }, [])
 
   useEffect(() => {
@@ -205,12 +189,12 @@ function App() {
   const protein = todayMeals.reduce((sum, meal) => sum + meal.protein, 0)
   const carbs = todayMeals.reduce((sum, meal) => sum + meal.carbs, 0)
   const fat = todayMeals.reduce((sum, meal) => sum + meal.fat, 0)
-  const latestWeight = data.weights.at(-1)?.value ?? (account ? null : 72.4)
-  const activeCalorieTarget = data.calorieTarget ?? (account ? null : calorieTarget)
-  const activeProteinTarget = data.proteinTarget ?? (account ? null : macroTarget.protein)
-  const activeCarbsTarget = data.carbsTarget ?? (account ? null : macroTarget.carbs)
-  const activeFatTarget = data.fatTarget ?? (account ? null : macroTarget.fat)
-  const weekWorkouts = data.workouts.filter((workout) => workout.complete).length
+  const latestWeight = data.weights.at(-1)?.value ?? null
+  const activeCalorieTarget = data.calorieTarget ?? null
+  const activeProteinTarget = data.proteinTarget ?? null
+  const activeCarbsTarget = data.carbsTarget ?? null
+  const activeFatTarget = data.fatTarget ?? null
+  const weekWorkouts = getWorkoutsForWeek(data.workouts, getStartOfWeek(currentDate)).length
 
   function changeSection(next: Section) {
     navigate(SECTION_PATHS[next])
@@ -222,7 +206,10 @@ function App() {
   }
 
   async function saveToAccount(path: string, body: Record<string, unknown>) {
-    if (!account) return true
+    if (!account) {
+      setNotice('Sign in before saving entries.')
+      return false
+    }
     try {
       const response = await fetch(`${API_URL}${path}`, {
         method: 'POST',
@@ -244,9 +231,13 @@ function App() {
     setNotice('Your progress has been saved')
   }
 
-  async function addWorkout(workout: Omit<Workout, 'id' | 'date' | 'complete'>) {
-    if (!(await saveToAccount('/workouts', { title: workout.title, focus: workout.focus, duration: workout.duration, volumeKg: workout.volume }))) return
-    updateData({ ...data, workouts: [{ ...workout, id: crypto.randomUUID(), date: 'Just now', complete: true }, ...data.workouts] })
+  async function addWorkout(workout: Omit<Workout, 'id' | 'date' | 'loggedAt' | 'complete'>) {
+    const loggedAt = new Date().toISOString()
+    if (!(await saveToAccount('/workouts', {
+      title: workout.title, focus: workout.focus, duration: workout.duration,
+      volumeKg: workout.volume, muscleDetails: workout.muscleDetails ?? [], startedAt: loggedAt,
+    }))) return
+    updateData({ ...data, workouts: [{ ...workout, id: crypto.randomUUID(), date: 'Just now', loggedAt, complete: true }, ...data.workouts] })
   }
   async function addMeal(meal: Omit<Meal, 'id' | 'time'>): Promise<boolean> {
     if (!(await saveToAccount('/meals', {
@@ -263,7 +254,7 @@ function App() {
     updateData({ ...data, weights: [...data.weights, { date: 'Today', value }] })
   }
 
-  async function authenticate(mode: 'login' | 'register', input: { name?: string; email: string; password: string }) {
+  async function authenticate(mode: 'login' | 'register', input: { name?: string; email: string; password: string }): Promise<string | null> {
     try {
       const response = await fetch(`${API_URL}/auth/${mode}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(input),
@@ -271,28 +262,27 @@ function App() {
       const result = await response.json() as { error?: string; user?: Account }
       if (!response.ok || !result.user) throw new Error(result.error ?? 'Could not sign in')
       const accountData = await loadAccountData()
-      localStorage.setItem('fittrack-account-connected', 'true')
       setAccount(result.user)
       setData(accountData)
-      setAccountModal(false)
       setNotice('You’re connected to your account')
+      return null
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Could not connect to the account service')
+      return error instanceof TypeError
+        ? 'The account service is unavailable. Start the API server and try again.'
+        : error instanceof Error ? error.message : 'Could not connect to the account service'
     }
   }
 
   async function logout() {
-    let message = 'Signed out. You’re back in the demo workspace.'
+    let message = 'You’ve been signed out.'
     try {
       const response = await fetch(`${API_URL}/auth/logout`, { method: 'POST', credentials: 'include' })
-      if (!response.ok) message = 'Signed out here, but the server could not confirm session revocation.'
+      if (!response.ok) message = 'Signed out on this device, but the server could not confirm session revocation.'
     } catch {
-      message = 'Signed out here, but the server could not confirm session revocation.'
+      message = 'Signed out on this device, but the server could not confirm session revocation.'
     }
-    localStorage.removeItem('fittrack-account-connected')
     setAccount(null)
-    setData(readStoredData())
-    setAccountModal(false)
+    setData({ workouts: [], meals: [], weights: [] })
     setNotice(message)
   }
 
@@ -300,6 +290,9 @@ function App() {
     setCompletedActions((previous) => previous.includes(id) ? previous.filter((item) => item !== id) : [...previous, id])
     setNotice(completedActions.includes(id) ? 'Insight moved back to your list' : 'Insight marked as done')
   }
+
+  if (!authChecked) return <AuthLoading />
+  if (!account) return <AuthScreen initialError={authError} onSubmit={authenticate} />
 
   return (
     <div className="app-shell">
@@ -323,10 +316,10 @@ function App() {
         <div className="sidebar-divider" />
         <div className="workspace-label">YOUR PLAN</div>
         <div className="goal-card">
-          <div className="goal-card-top"><div className="goal-icon"><Target size={16} /></div><span>{account ? 'Your plan' : 'Lean muscle'}</span><MoreHorizontal size={18} className="muted-icon" /></div>
-          <div className="goal-number">{account ? latestWeight?.toFixed(1) ?? '—' : '72.4'} <span>{account ? latestWeight === null ? '' : 'kg' : 'kg'}</span></div>
-          <div className="goal-progress"><span style={{ width: account ? '0%' : '64%' }} /></div>
-          <div className="goal-caption"><span>{account ? 'Latest weight' : 'Current'}</span><span>{account ? 'No goal set' : '75 kg goal'}</span></div>
+          <div className="goal-card-top"><div className="goal-icon"><Target size={16} /></div><span>Your plan</span><MoreHorizontal size={18} className="muted-icon" /></div>
+          <div className="goal-number">{latestWeight?.toFixed(1) ?? '—'} <span>{latestWeight === null ? '' : 'kg'}</span></div>
+          <div className="goal-progress"><span style={{ width: '0%' }} /></div>
+          <div className="goal-caption"><span>Latest weight</span><span>No goal set</span></div>
         </div>
 
         <div className="sidebar-spacer" />
@@ -337,9 +330,9 @@ function App() {
         </div>
         <button className="nav-link sidebar-settings" onClick={() => setNotice('Settings are coming soon — your data is saved on this device.')}><Settings2 size={18} /><span>Settings</span></button>
         <div className="profile-row">
-          <div className="avatar">SJ</div>
-          <div className="profile-copy"><strong>{account?.name ?? 'Sarthak Joshi'}</strong><span>{account ? 'Connected account' : 'Demo account'}</span></div>
-          <button className="icon-button" aria-label={account ? 'Sign out' : 'Connect account'} onClick={account ? logout : () => setAccountModal(true)}>{account ? <LogOut size={15} /> : <ChevronDown size={16} />}</button>
+          <div className="avatar">{account.name.slice(0, 2).toUpperCase()}</div>
+          <div className="profile-copy"><strong>{account.name}</strong><span>Connected account</span></div>
+          <button className="icon-button" aria-label="Sign out" onClick={logout}><LogOut size={15} /></button>
         </div>
       </aside>
 
@@ -349,7 +342,7 @@ function App() {
           <button className="icon-button menu-trigger" aria-label="Open navigation" onClick={() => setMobileNavOpen(true)}><Menu size={20} /></button>
           <div className="breadcrumb"><span>Workspace</span><ChevronRight size={15} /><strong>{section}</strong></div>
           <div className="topbar-actions">
-            <button className="demo-pill" onClick={() => account ? changeSection('Overview') : setAccountModal(true)}><span /> {account ? account.email : <><span className="demo-desktop-label">Demo workspace</span><span className="demo-mobile-label">Demo</span></>}</button>
+            <div className="demo-pill account-pill"><span /> {account.email}</div>
             <button className="icon-button search-button" aria-label="Search workouts" onClick={() => changeSection('Workouts')}><Search size={18} /></button>
             <button className="icon-button notification-button" aria-label="Notifications" onClick={() => changeSection('Intelligence')}><Bell size={18} /><i /></button>
             <div className="topbar-avatar">SJ</div>
@@ -358,36 +351,62 @@ function App() {
 
         <div className="page-content">
           {section === 'Overview' && <Dashboard
+            currentDate={currentDate}
             calories={calories} protein={protein} carbs={carbs} fat={fat} latestWeight={latestWeight} goalWeight={account ? null : 75} calorieTarget={activeCalorieTarget} proteinTarget={activeProteinTarget} carbsTarget={activeCarbsTarget} fatTarget={activeFatTarget}
-            workouts={data.workouts} meals={todayMeals} weights={data.weights} workoutCount={weekWorkouts}
+            workouts={data.workouts} meals={todayMeals} weights={data.weights}
             onAddWorkout={() => setModal('workout')} onAddMeal={() => openFoodLogger()}
             onAddWeight={() => setModal('weight')} onNavigate={changeSection}
           />}
           {section === 'Workouts' && <WorkoutsPage workouts={data.workouts} onAdd={() => setModal('workout')} />}
           {section === 'Nutrition' && <NutritionPage meals={todayMeals} calories={calories} protein={protein} carbs={carbs} fat={fat} calorieTarget={activeCalorieTarget} proteinTarget={activeProteinTarget} carbsTarget={activeCarbsTarget} fatTarget={activeFatTarget} onAdd={() => openFoodLogger()} />}
           {section === 'Progress' && <ProgressPage weights={data.weights} latestWeight={latestWeight} onAdd={() => setModal('weight')} />}
-          {section === 'Intelligence' && <IntelligencePage calories={calories} protein={protein} calorieTarget={activeCalorieTarget} workoutCount={weekWorkouts} completedActions={completedActions} onToggle={toggleAction} />}
+          {section === 'Intelligence' && <IntelligencePage calories={calories} protein={protein} calorieTarget={activeCalorieTarget} workoutCount={weekWorkouts} completedActions={completedActions} onToggle={toggleAction} workouts={data.workouts} />}
           {section === 'Meal builder' && <MealBuilder onLog={openFoodLogger} onOpenRecipe={setRecipeFood} />}
+          {section === 'Time machine' && <TimeMachinePage workouts={data.workouts} startingWeightKg={latestWeight} maintenanceCalories={activeCalorieTarget ?? 2200} proteinTarget={activeProteinTarget ?? 100} />}
         </div>
       </main>
 
       {modal && modal !== 'meal' && <EntryModal type={modal} onClose={() => setModal(null)} onWorkout={(value) => { addWorkout(value); setModal(null) }} onWeight={(value) => { addWeight(value); setModal(null) }} />}
       {modal === 'meal' && <FoodQuantityModal initialFood={pendingFood} customFoods={customFoods} onClose={() => setModal(null)} onSave={(meal, customFood) => { void addMeal(meal).then((saved) => { if (saved) { if (customFood) setCustomFoods((current) => [...current.filter((food) => food.name.toLocaleLowerCase() !== customFood.name.toLocaleLowerCase()), customFood]); setModal(null); setPendingFood(null) } }) }} />}
       {recipeFood && <RecipeModal food={recipeFood} onClose={() => setRecipeFood(null)} onLog={(food) => { setRecipeFood(null); openFoodLogger(food) }} />}
-      {accountModal && <AccountModal onClose={() => setAccountModal(false)} onSubmit={authenticate} />}
       {notice && <div className="toast" role="status"><span className="toast-check"><Check size={15} /></span>{notice}<button aria-label="Dismiss notification" onClick={() => setNotice('')}><X size={15} /></button></div>}
     </div>
   )
 }
 
 type DashboardProps = {
+  currentDate: Date
   calories: number; protein: number; carbs: number; fat: number; latestWeight: number | null; goalWeight: number | null
   calorieTarget: number | null; proteinTarget: number | null; carbsTarget: number | null; fatTarget: number | null
-  workouts: Workout[]; meals: Meal[]; weights: WeightEntry[]; workoutCount: number
+  workouts: Workout[]; meals: Meal[]; weights: WeightEntry[]
   onAddWorkout: () => void; onAddMeal: () => void; onAddWeight: () => void; onNavigate: (section: Section) => void
 }
 
-function Dashboard({ calories, protein, carbs, fat, latestWeight, goalWeight, calorieTarget, proteinTarget, carbsTarget, fatTarget, workouts, meals, weights, workoutCount, onAddWorkout, onAddMeal, onAddWeight, onNavigate }: DashboardProps) {
+function Dashboard({ currentDate, calories, protein, carbs, fat, latestWeight, goalWeight, calorieTarget, proteinTarget, carbsTarget, fatTarget, workouts, meals, weights, onAddWorkout, onAddMeal, onAddWeight, onNavigate }: DashboardProps) {
+  const [weekOffset, setWeekOffset] = useState(0)
+  const weekStart = getStartOfWeek(currentDate, weekOffset)
+  const weekDays = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(weekStart)
+    date.setDate(date.getDate() + index)
+    return date
+  })
+  const weekWorkouts = getWorkoutsForWeek(workouts, weekStart)
+  const workoutDays = new Set(weekWorkouts.map((workout) => {
+    const date = new Date(getWorkoutTime(workout)!)
+    date.setHours(0, 0, 0, 0)
+    return date.getTime()
+  }))
+  const today = new Date(currentDate)
+  today.setHours(0, 0, 0, 0)
+  const todayWorkout = weekWorkouts.some((workout) => {
+    const time = getWorkoutTime(workout)
+    if (time === null) return false
+    const date = new Date(time)
+    date.setHours(0, 0, 0, 0)
+    return date.getTime() === today.getTime()
+  })
+  const weekLabel = weekOffset === 0 ? 'This week' : weekOffset === -1 ? 'Last week' : `${Math.abs(weekOffset)} weeks ago`
+  const formatWeekDate = (date: Date) => new Intl.DateTimeFormat('en', { month: 'short', day: 'numeric' }).format(date)
   const macroData: ChartData<'doughnut'> = {
     labels: ['Protein', 'Carbs', 'Fat'],
     datasets: [{ data: [protein, carbs, fat], backgroundColor: ['#7767f5', '#ff9d6c', '#f2ca72'], borderWidth: 0, hoverOffset: 3, borderRadius: 8, spacing: 4 }],
@@ -396,31 +415,33 @@ function Dashboard({ calories, protein, carbs, fat, latestWeight, goalWeight, ca
     cutout: '78%', plugins: { legend: { display: false }, tooltip: { enabled: true, backgroundColor: '#20212a', padding: 10, callbacks: { label: (context) => ` ${context.label}: ${context.raw}g` } } },
     maintainAspectRatio: false,
   }
-  const weekDays = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
-  const isTodayWorkout = workouts[0]?.date.includes('Today') || workouts[0]?.date === 'Just now'
   const weightChange = latestWeight !== null && weights.length > 1 ? latestWeight - weights[0].value : null
   const averageWeight = weights.length ? weights.slice(-7).reduce((sum, item) => sum + item.value, 0) / weights.slice(-7).length : null
   return (
     <>
       <div className="welcome-row">
-        <div><div className="eyebrow">{dateLabel()}</div><h1>Good morning, Sarthak</h1><p className="page-subtitle">A little progress each day adds up to big results.</p></div>
-        <div className="date-selector"><CalendarDays size={16} /> This week <ChevronDown size={15} /></div>
+        <div><div className="eyebrow">{dateLabel(currentDate)}</div><h1>Good morning, Sarthak</h1><p className="page-subtitle">A little progress each day adds up to big results.</p></div>
+        <label className="date-selector"><CalendarDays size={16} /><select aria-label="Select dashboard week" value={weekOffset} onChange={(event) => setWeekOffset(Number(event.target.value))}><option value={0}>This week</option><option value={-1}>Last week</option><option value={-2}>2 weeks ago</option><option value={-3}>3 weeks ago</option></select><ChevronDown size={15} /></label>
       </div>
 
       <section className="hero-panel">
         <div className="hero-copy">
           <div className="hero-kicker"><span className="pulse-dot" /> YOUR WEEKLY RHYTHM</div>
           <h2>You’re finding<br />your <em>strong.</em></h2>
-          <p>You've completed <strong>{Math.min(workoutCount, 5)} workouts</strong> this week. Keep your momentum going — consistency beats perfection.</p>
-          <button className="hero-button" onClick={onAddWorkout}><Dumbbell size={16} /> {isTodayWorkout ? 'Log another workout' : 'Start a workout'} <ArrowRight size={16} /></button>
+          <p>You've completed <strong>{weekWorkouts.length} workout{weekWorkouts.length === 1 ? '' : 's'}</strong> {weekLabel.toLowerCase()}. Keep your momentum going — consistency beats perfection.</p>
+          <button className="hero-button" onClick={onAddWorkout}><Dumbbell size={16} /> {todayWorkout ? 'Log another workout' : 'Start a workout'} <ArrowRight size={16} /></button>
         </div>
         <div className="hero-visual" aria-hidden="true">
           <div className="hero-orbit orbit-one" /><div className="hero-orbit orbit-two" />
-          <div className="hero-ring"><div className="ring-center"><span>{Math.min(workoutCount, 5)}</span><small>of 5 sessions</small></div></div>
+          <div className="hero-ring"><div className="ring-center"><span>{Math.min(weekWorkouts.length, 5)}</span><small>of 5 sessions</small></div></div>
           <div className="hero-spark spark-a">✦</div><div className="hero-spark spark-b">✧</div>
           <div className="hero-chip"><span className="chip-indicator" /> On track</div>
         </div>
-        <div className="hero-bottom"><span>WEEK OF OCT 20 — 26</span><div>{weekDays.map((day, i) => <span key={`${day}-${i}`} className={`week-day ${i < Math.min(workoutCount, 5) ? 'week-day-done' : ''}`}>{i < Math.min(workoutCount, 5) ? <Check size={12} /> : day}</span>)}</div></div>
+        <div className="hero-bottom"><span>{formatWeekDate(weekStart)} — {formatWeekDate(weekDays[6])}</span><div>{weekDays.map((date) => {
+          const trained = workoutDays.has(date.getTime())
+          const dayName = new Intl.DateTimeFormat('en', { weekday: 'short' }).format(date)
+          return <span key={date.toISOString()} title={`${dayName}, ${formatWeekDate(date)}${trained ? ' · workout logged' : ''}`} aria-label={`${dayName}, ${formatWeekDate(date)}${trained ? ', workout logged' : ', no workout logged'}`} className={`week-day ${trained ? 'week-day-done' : ''} ${date.getTime() === today.getTime() ? 'week-day-today' : ''}`}>{trained ? <Check size={12} /> : dayName[0]}</span>
+        })}</div></div>
       </section>
 
       <div className="section-title-row">
@@ -432,7 +453,7 @@ function Dashboard({ calories, protein, carbs, fat, latestWeight, goalWeight, ca
         <MetricCard icon={<Flame size={17} />} iconClass="icon-coral" label="Calories" value={calories.toLocaleString()} unit="kcal" target={calorieTarget === null ? 'no target set' : `of ${calorieTarget.toLocaleString()}`} progress={calorieTarget === null ? 0 : Math.min(calories / calorieTarget * 100, 100)} progressClass="progress-coral" detail={calorieTarget === null ? 'Set a target in your profile' : `${Math.max(calorieTarget - calories, 0).toLocaleString()} kcal remaining`} action={onAddMeal} actionLabel="Log food" />
         <MetricCard icon={<Dumbbell size={17} />} iconClass="icon-violet" label="Protein" value={protein.toString()} unit="g" target={proteinTarget === null ? 'no target set' : `of ${proteinTarget}g`} progress={proteinTarget === null ? 0 : Math.min(protein / proteinTarget * 100, 100)} progressClass="progress-violet" detail={proteinTarget === null ? 'Set a target in your profile' : `${Math.max(proteinTarget - protein, 0)}g to your goal`} action={onAddMeal} actionLabel="Add protein" />
         <MetricCard icon={<Weight size={17} />} iconClass="icon-blue" label="Body weight" value={latestWeight?.toFixed(1) ?? '—'} unit={latestWeight === null ? '' : 'kg'} target={latestWeight === null ? 'no entries yet' : goalWeight ? `${goalWeight} kg goal` : 'latest entry'} progress={latestWeight !== null && goalWeight ? Math.min(latestWeight / goalWeight * 100, 100) : 0} progressClass="progress-blue" detail={latestWeight === null ? 'Record your first weigh-in' : 'Log consistently for trends'} action={onAddWeight} actionLabel="Log weight" />
-        <MetricCard icon={<HeartPulse size={17} />} iconClass="icon-green" label="Workouts" value={String(Math.min(workoutCount, 5))} unit="/ 5" target="this week" progress={Math.min(workoutCount / 5 * 100, 100)} progressClass="progress-green" detail={workoutCount >= 4 ? 'Great consistency this week' : 'You’re building a rhythm'} action={onAddWorkout} actionLabel="Start session" />
+        <MetricCard icon={<HeartPulse size={17} />} iconClass="icon-green" label="Workouts" value={String(Math.min(weekWorkouts.length, 5))} unit="/ 5" target={weekLabel.toLowerCase()} progress={Math.min(weekWorkouts.length / 5 * 100, 100)} progressClass="progress-green" detail={weekWorkouts.length >= 4 ? 'Great consistency this week' : 'You’re building a rhythm'} action={onAddWorkout} actionLabel="Start session" />
       </section>
 
       <div className="dashboard-columns">
@@ -591,7 +612,184 @@ function ProgressPage({ weights, latestWeight, onAdd }: { weights: WeightEntry[]
   </>
 }
 
-function IntelligencePage({ calories, protein, calorieTarget, workoutCount, completedActions, onToggle }: { calories: number; protein: number; calorieTarget: number | null; workoutCount: number; completedActions: string[]; onToggle: (id: string) => void }) {
+function MuscleIntelligencePanel({ workouts }: { workouts: Workout[] }) {
+  const [view, setView] = useState<'front' | 'back'>('front')
+  const [selectedMuscle, setSelectedMuscle] = useState<MuscleGroup>('CHEST')
+  const metrics = calculateMuscleMetrics(workouts.map((workout) => ({
+    date: workout.loggedAt ?? workout.date,
+    muscleDetails: workout.muscleDetails,
+  })))
+  const visibleGroups = MUSCLE_GROUPS.filter((group) => group.view === view)
+  const metricFor = (group: MuscleGroup) => metrics.find((metric) => metric.muscleGroup === group)!
+  const selected = metricFor(selectedMuscle)
+  const hasLoggedSets = workouts.some((workout) => (workout.muscleDetails?.length ?? 0) > 0)
+
+  function muscleColor(group: MuscleGroup) {
+    const metric = metricFor(group)
+    if (metric.weeklySets > 18 || metric.soreness !== null && metric.soreness >= 6) return '#edaa96'
+    if (metric.weeklySets >= 6) return '#8478e4'
+    if (metric.weeklySets > 0) return '#b3aaf2'
+    return '#d9dbe5'
+  }
+
+  function muscleShape(group: MuscleGroup, path: string, label: string) {
+    return <path
+      key={label}
+      d={path}
+      className={`muscle-map-region ${selectedMuscle === group ? 'muscle-map-region-selected' : ''}`}
+      style={{ fill: muscleColor(group) }}
+      role="button"
+      tabIndex={0}
+      aria-label={`Select ${MUSCLE_GROUPS.find((item) => item.id === group)?.label}`}
+      onClick={() => setSelectedMuscle(group)}
+      onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelectedMuscle(group) } }}
+    />
+  }
+
+  return <section className="surface-card muscle-intelligence-card">
+    <div className="card-heading-row muscle-intelligence-heading"><div><div className="card-overline">MUSCLE INTELLIGENCE ENGINE</div><h3>Train with a little more context.</h3><p className="card-subtitle">Weekly direct sets, same-lift strength trends, and your soreness check-ins.</p></div><span className="muscle-window-badge">LAST 7 DAYS</span></div>
+    <div className="muscle-intelligence-layout">
+      <div className="muscle-map-panel">
+        <div className="muscle-map-toolbar"><span>TRAINING LOAD</span><div className="filter-tabs">{(['front', 'back'] as const).map((side) => <button key={side} className={view === side ? 'filter-active' : ''} onClick={() => { setView(side); setSelectedMuscle(MUSCLE_GROUPS.find((group) => group.view === side)!.id) }}>{side === 'front' ? 'Front' : 'Back'}</button>)}</div></div>
+        <div className="muscle-map-stage">
+          <svg className="muscle-map-svg" viewBox="0 0 240 380" role="img" aria-label={`${view} body muscle map colored by logged weekly working sets`}>
+            <defs>
+              <linearGradient id="body-shade" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stopColor="#f7f7fb" /><stop offset=".48" stopColor="#e7e8ef" /><stop offset="1" stopColor="#d4d6e1" /></linearGradient>
+            </defs>
+            <ellipse cx="120" cy="34" rx="17" ry="21" fill="url(#body-shade)" />
+            <path d="M108 53h24l3 18h-30z" fill="url(#body-shade)" />
+            <path d="M88 66Q120 54 152 66l15 63-15 39-7 38q-25 15-50 0l-7-38-15-39z" fill="url(#body-shade)" stroke="#d0d2dc" strokeWidth="1" />
+            <path d="M86 70Q72 68 65 83l-17 62q-4 14 5 17 9 2 14-11l24-45zM154 70q14-2 21 13l17 62q4 14-5 17-9 2-14-11l-24-45z" fill="url(#body-shade)" stroke="#d0d2dc" strokeWidth="1" />
+            <path d="M99 197q21 10 42 0l6 75-8 83q-1 10-11 10-10 0-10-12l-2-67-2 67q0 12-10 12-10 0-11-10l-8-83z" fill="url(#body-shade)" stroke="#d0d2dc" strokeWidth="1" />
+            {view === 'front' ? <>
+              {muscleShape('SHOULDERS', 'M83 70q9-11 23-7l-5 22q-13 3-19-6z', 'left shoulder')}
+              {muscleShape('SHOULDERS', 'M157 70q-9-11-23-7l5 22q13 3 19-6z', 'right shoulder')}
+              {muscleShape('CHEST', 'M99 82q10-7 20 0v27q-12 2-20-4z', 'left chest')}
+              {muscleShape('CHEST', 'M141 82q-10-7-20 0v27q12 2 20-4z', 'right chest')}
+              {muscleShape('BICEPS', 'M70 94l13 7-8 35q-5 11-11 5l-5-7z', 'left bicep')}
+              {muscleShape('BICEPS', 'M170 94l-13 7 8 35q5 11 11 5l5-7z', 'right bicep')}
+              {muscleShape('CORE', 'M106 112h28l6 53q-20 11-40 0z', 'core')}
+              {muscleShape('QUADS', 'M99 202q10 4 18 2v68l-7 27q-7-1-11-11l-7-47z', 'left quadriceps')}
+              {muscleShape('QUADS', 'M141 202q-10 4-18 2v68l7 27q7-1 11-11l7-47z', 'right quadriceps')}
+              {muscleShape('CALVES', 'M105 300l10 5-2 45q-3 9-10 4l-5-22z', 'left calf')}
+              {muscleShape('CALVES', 'M135 300l-10 5 2 45q3 9 10 4l5-22z', 'right calf')}
+            </> : <>
+              {muscleShape('BACK', 'M97 79q23-12 46 0l5 63q-26 15-56 0z', 'back')}
+              {muscleShape('TRICEPS', 'M70 93l13 7-8 36q-5 11-11 5l-5-7z', 'left tricep')}
+              {muscleShape('TRICEPS', 'M170 93l-13 7 8 36q5 11 11 5l5-7z', 'right tricep')}
+              {muscleShape('GLUTES', 'M99 164q21 8 42 0l5 34q-24 14-52 0z', 'glutes')}
+              {muscleShape('HAMSTRINGS', 'M99 204q10 3 18 1v66l-7 28q-7-1-11-11l-7-47z', 'left hamstring')}
+              {muscleShape('HAMSTRINGS', 'M141 204q-10 3-18 1v66l7 28q7-1 11-11l7-47z', 'right hamstring')}
+              {muscleShape('CALVES', 'M105 300l10 5-2 45q-3 9-10 4l-5-22z', 'left calf')}
+              {muscleShape('CALVES', 'M135 300l-10 5 2 45q3 9 10 4l5-22z', 'right calf')}
+            </>}
+            <path d="M120 68v128M120 202v90" stroke="#fff" strokeOpacity=".55" strokeWidth="1" />
+          </svg>
+          <div className="muscle-map-caption"><span><i className="muscle-legend-dot low" />Building</span><span><i className="muscle-legend-dot balanced" />On track</span><span><i className="muscle-legend-dot high" />High load / soreness</span></div>
+        </div>
+      </div>
+      <div className="muscle-detail-panel">
+        <div className="muscle-group-list" aria-label={`${view} muscle groups`}>{visibleGroups.map((group) => {
+          const metric = metricFor(group.id)
+          return <button key={group.id} className={`muscle-group-button ${selectedMuscle === group.id ? 'muscle-group-selected' : ''}`} onClick={() => setSelectedMuscle(group.id)}>
+            <i style={{ background: muscleColor(group.id) }} /><span>{group.label}</span><strong>{metric.weeklySets} <small>sets</small></strong>
+          </button>
+        })}</div>
+        <article className="muscle-recommendation">
+          <div className="muscle-recommendation-top"><div><span className="card-overline">NEXT STEP</span><h4>{MUSCLE_GROUPS.find((group) => group.id === selectedMuscle)?.label}</h4></div><span className={`recommendation-pill recommendation-${selected.recommendation.toLowerCase().replace(' ', '-')}`}>{selected.recommendation}</span></div>
+          <div className="muscle-signal-grid"><span><strong>{selected.weeklySets}</strong>sets / 7d</span><span><strong>{selected.soreness === null ? '—' : `${selected.soreness}/10`}</strong>soreness</span><span><strong>{selected.strengthChangePercent === null ? '—' : `${selected.strengthChangePercent > 0 ? '+' : ''}${selected.strengthChangePercent}%`}</strong>same-lift strength</span></div>
+          <p>{selected.reason}</p><div className="muscle-next-step"><Lightbulb size={14} /><span>{selected.nextStep}</span></div>
+        </article>
+      </div>
+    </div>
+    {!hasLoggedSets && <div className="muscle-data-prompt"><CircleHelp size={15} /><span>Older workouts without working-set details are not guessed. Add muscle groups and sets when you log your next workout to start your map.</span></div>}
+    <div className="muscle-footnote">Planning signals, not a diagnosis. The 6–18 set range is a broad reference; adjust for your training history, goals, and recovery.</div>
+  </section>
+}
+
+function TimeMachinePage({ workouts, startingWeightKg, maintenanceCalories, proteinTarget }: { workouts: Workout[]; startingWeightKg: number | null; maintenanceCalories: number; proteinTarget: number }) {
+  const [now] = useState(() => Date.now())
+  const recentWorkouts = workouts.filter((workout) => {
+    const date = Date.parse(workout.loggedAt ?? workout.date)
+    return Number.isFinite(date) && date >= now - 7 * 24 * 60 * 60 * 1000 && date <= now
+  })
+  const recentTrainingDays = new Set(recentWorkouts.map((workout) => new Date(workout.loggedAt ?? workout.date).toISOString().slice(0, 10))).size
+  const loggedWeeklyVolume = recentWorkouts.reduce((sum, workout) => sum + workout.volume, 0)
+  const [weight, setWeight] = useState(startingWeightKg ?? 0)
+  const [maintenance, setMaintenance] = useState(maintenanceCalories)
+  const [calorieChange, setCalorieChange] = useState(0)
+  const [currentDays, setCurrentDays] = useState(recentTrainingDays || 4)
+  const [plannedDays, setPlannedDays] = useState(4)
+  const [missedDays, setMissedDays] = useState(0)
+  const [currentProtein, setCurrentProtein] = useState(proteinTarget)
+  const [plannedProtein, setPlannedProtein] = useState(Math.max(proteinTarget, 130))
+  const [weeklyVolume, setWeeklyVolume] = useState(loggedWeeklyVolume)
+  const projections = weight >= 20 && weight <= 350 ? projectFitnessScenario({
+    startingWeightKg: weight,
+    dailyCalorieChange: calorieChange,
+    currentTrainingDays: currentDays,
+    plannedTrainingDays: plannedDays,
+    missedWorkoutsPerWeek: missedDays,
+    currentProteinG: currentProtein,
+    plannedProteinG: plannedProtein,
+    weeklyVolumeKg: weeklyVolume,
+  }) : []
+  const chartData: ChartData<'line'> = {
+    labels: ['Now', '4 weeks', '8 weeks', '12 weeks'],
+    datasets: [
+      { label: 'Optimistic', data: projections.length ? [weight, ...projections.map((projection) => projection.optimisticWeightKg)] : [], borderColor: '#8a7fe8', backgroundColor: '#8a7fe8', borderWidth: 2, tension: .35, pointRadius: 3 },
+      { label: 'Typical', data: projections.length ? [weight, ...projections.map((projection) => projection.typicalWeightKg)] : [], borderColor: '#55a887', backgroundColor: '#55a887', borderWidth: 2.5, tension: .35, pointRadius: 3 },
+      { label: 'Conservative', data: projections.length ? [weight, ...projections.map((projection) => projection.conservativeWeightKg)] : [], borderColor: '#e4a66f', backgroundColor: '#e4a66f', borderWidth: 2, tension: .35, pointRadius: 3 },
+    ],
+  }
+  const chartOptions: ChartOptions<'line'> = {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 6, color: '#777884', font: { size: 10 } } }, tooltip: { callbacks: { label: (context) => `${context.dataset.label}: ${Number(context.parsed.y).toFixed(1)} kg` } } },
+    scales: {
+      x: { grid: { display: false }, border: { display: false }, ticks: { color: '#9697a1' } },
+      y: { grid: { color: '#f0f0f4' }, border: { display: false }, ticks: { color: '#9697a1', callback: (value) => `${value} kg` } },
+    },
+  }
+  const predictedIntake = maintenance + calorieChange
+  const hasStartingWeight = weight >= 20 && weight <= 350
+
+  return <>
+    <SectionHeader eyebrow="FITNESS TIME MACHINE" title="Explore the what-ifs." description="Compare possible 4, 8, and 12-week paths before changing your routine." action={<span className="estimate-pill"><Sparkles size={14} /> Scenario estimates</span>} />
+    <div className="time-machine-banner"><div className="time-machine-orb"><Clock3 size={21} /></div><div><strong>A planning tool, not a promise.</strong><p>Weight math uses a rough energy-balance estimate with three different adherence assumptions. It cannot predict exact body composition or individual adaptation.</p></div></div>
+    <div className="time-machine-layout">
+      <section className="surface-card scenario-controls">
+        <div className="card-overline">SET YOUR ASSUMPTIONS</div><h3>What would you like to change?</h3><p className="card-subtitle">Start with your best estimates; you can adjust any slider.</p>
+        <label className="scenario-number-field">Starting bodyweight <span>kg</span><input type="number" min="20" max="350" step=".1" value={weight || ''} placeholder="e.g. 72.4" onChange={(event) => setWeight(Number(event.target.value))} /></label>
+        {!hasStartingWeight && <span className="scenario-hint">Add your current weight to see projections.</span>}
+        <label className="scenario-number-field">Reference calories <span>maintenance estimate · kcal / day</span><input type="number" min="800" max="8000" step="50" value={maintenance} onChange={(event) => setMaintenance(Math.min(8000, Math.max(800, Number(event.target.value) || 800)))} /></label>
+        <div className="scenario-slider-field"><div><label htmlFor="calorie-change">Daily calorie change</label><strong>{calorieChange > 0 ? '+' : ''}{calorieChange} kcal</strong></div><input id="calorie-change" type="range" min="-1000" max="1000" step="50" value={calorieChange} onChange={(event) => setCalorieChange(Number(event.target.value))} /><span>Estimated scenario intake: {predictedIntake.toLocaleString()} kcal/day</span></div>
+        <div className="scenario-divider" />
+        <div className="scenario-control-grid">
+          <label className="scenario-number-field">Current training days <span>per week</span><input type="number" min="1" max="7" value={currentDays} onChange={(event) => setCurrentDays(Math.min(7, Math.max(1, Number(event.target.value) || 1)))} /></label>
+          <label className="scenario-number-field">Planned days <span>per week</span><input type="number" min="1" max="7" value={plannedDays} onChange={(event) => { const next = Math.min(7, Math.max(1, Number(event.target.value) || 1)); setPlannedDays(next); setMissedDays((current) => Math.min(current, next)) }} /></label>
+        </div>
+        <label className="scenario-number-field">Workouts you expect to miss <span>per week</span><input type="number" min="0" max={plannedDays} value={missedDays} onChange={(event) => setMissedDays(Math.min(plannedDays, Math.max(0, Number(event.target.value) || 0)))} /></label>
+        <label className="scenario-number-field">Current weekly training volume <span>kg total</span><input type="number" min="0" max="1000000" step="100" value={weeklyVolume} onChange={(event) => setWeeklyVolume(Math.min(1000000, Math.max(0, Number(event.target.value) || 0)))} /></label>
+        <div className="scenario-control-grid">
+          <label className="scenario-number-field">Current protein goal <span>g / day</span><input type="number" min="0" max="500" value={currentProtein} onChange={(event) => setCurrentProtein(Math.min(500, Math.max(0, Number(event.target.value) || 0)))} /></label>
+          <label className="scenario-number-field">Scenario protein goal <span>g / day</span><input type="number" min="0" max="500" value={plannedProtein} onChange={(event) => setPlannedProtein(Math.min(500, Math.max(0, Number(event.target.value) || 0)))} /></label>
+        </div>
+        <span className="scenario-hint">The session and volume estimate assumes completed workouts are spread evenly through the week. Protein is shown as a goal change, not converted into a physique prediction.</span>
+      </section>
+      <div className="scenario-results">
+        <section className="surface-card projection-chart-card"><div className="card-heading-row"><div><div className="card-overline">POSSIBLE BODYWEIGHT PATHS</div><h3>Three ways the next 12 weeks could look</h3></div><span className="projection-calorie-chip">{predictedIntake.toLocaleString()} kcal/day</span></div>
+          {hasStartingWeight ? <div className="projection-chart"><Line data={chartData} options={chartOptions} /></div> : <EmptyState icon={<Weight size={20} />} title="Add your current bodyweight" text="Enter a starting weight to compare the estimated paths." />}
+        </section>
+        {hasStartingWeight && <section className="surface-card projection-table-card"><div className="card-heading-row"><div><div className="card-overline">SCENARIO CHECKPOINTS</div><h3>Range, not a single answer</h3></div><span className="projection-protein-chip">{currentProtein}g → {plannedProtein}g protein</span></div>
+          <div className="projection-table-wrap"><table className="projection-table"><thead><tr><th>Horizon</th><th>Conservative</th><th>Typical</th><th>Optimistic</th><th>Weekly volume</th></tr></thead><tbody>{projections.map((projection) => <tr key={projection.weeks}><th>{projection.weeks} weeks</th><td>{projection.conservativeWeightKg.toFixed(1)} kg</td><td className="projection-typical">{projection.typicalWeightKg.toFixed(1)} kg</td><td>{projection.optimisticWeightKg.toFixed(1)} kg</td><td>{projection.weeklyVolumeKg.toLocaleString()} kg</td></tr>)}</tbody></table></div>
+        </section>}
+      </div>
+    </div>
+    <div className="helper-note"><CircleHelp size={16} /><span>These broad estimates assume calorie differences continue consistently and ignore water-weight shifts, changes in appetite, metabolism, and individual response. They are not medical or body-composition advice.</span></div>
+  </>
+}
+
+function IntelligencePage({ calories, protein, calorieTarget, workoutCount, completedActions, onToggle, workouts }: { calories: number; protein: number; calorieTarget: number | null; workoutCount: number; completedActions: string[]; onToggle: (id: string) => void; workouts: Workout[] }) {
   const nutritionComplete = calorieTarget !== null && calories >= calorieTarget * .7
   const insights = [
     { id: 'logging', tag: 'DATA QUALITY', title: nutritionComplete ? 'Nice work keeping your food log going' : 'A fuller food log makes insights more useful', body: nutritionComplete ? `You have logged ${calories.toLocaleString()} kcal and ${protein}g protein so far today. Consistent tracking gives your weekly averages more context.` : calorieTarget === null ? 'You have no calorie target set yet. Logging meals still gives you a useful record, but we need a target before discussing adherence.' : `You have ${calories.toLocaleString()} kcal and ${protein}g protein logged so far. If you ate more, adding it helps keep your daily average from looking lower than it is.`, confidence: calorieTarget === null ? 'Target not set' : 'Based on today’s log', icon: <Utensils size={18} />, color: 'insight-peach' },
@@ -600,6 +798,7 @@ function IntelligencePage({ calories, protein, calorieTarget, workoutCount, comp
   ]
   return <>
     <SectionHeader eyebrow="FITNESS INTELLIGENCE" title="Understand your patterns." description="Thoughtful nudges based on what you log — not medical advice." action={<span className="rule-engine-pill"><Sparkles size={15} /> Explainable rules</span>} />
+    <MuscleIntelligencePanel workouts={workouts} />
     <div className="intelligence-banner"><div className="banner-orb"><Sparkles size={23} /></div><div><strong>Good data, better guidance.</strong><p>These insights use your activity and nutrition logs. When there isn’t enough information, we’ll say so.</p></div><div className="quality-meter"><span>DATA COVERAGE</span><strong>{Math.min(48 + workoutCount * 8 + (nutritionComplete ? 12 : 0), 88)}%</strong><div><i style={{ width: `${Math.min(48 + workoutCount * 8 + (nutritionComplete ? 12 : 0), 88)}%` }} /></div></div></div>
     <div className="section-title-row insight-title-row"><div><h2 className="section-heading">Your observations</h2><p className="section-caption">A little context for your next decision.</p></div><span className="insights-count">{insights.filter((item) => !completedActions.includes(item.id)).length} active</span></div>
     <div className="insight-list">{insights.map((insight) => {
@@ -803,7 +1002,7 @@ function FoodQuantityModal({ initialFood, customFoods, onClose, onSave }: {
 
 function EntryModal({ type, onClose, onWorkout, onWeight }: {
   type: Exclude<ModalType, 'meal' | null>; onClose: () => void;
-  onWorkout: (value: Omit<Workout, 'id' | 'date' | 'complete'>) => void;
+  onWorkout: (value: Omit<Workout, 'id' | 'date' | 'loggedAt' | 'complete'>) => void;
   onWeight: (value: number) => void
 }) {
   const [error, setError] = useState('')
@@ -816,7 +1015,38 @@ function EntryModal({ type, onClose, onWorkout, onWeight }: {
       const volume = Number(form.get('volume'))
       const duration = Number(form.get('duration'))
       if (!title || volume < 0 || duration <= 0) { setError('Add a workout name, duration, and a valid volume.'); return }
-      onWorkout({ title, focus: String(form.get('focus') || 'Full body'), duration, volume })
+      const selectedMuscles = form.getAll('muscleGroup').filter((value): value is MuscleGroup =>
+        typeof value === 'string' && MUSCLE_GROUPS.some((group) => group.id === value),
+      )
+      const muscleDetails: MuscleDetail[] = []
+      for (const muscleGroup of selectedMuscles) {
+        const workingSets = Number(form.get(`sets-${muscleGroup}`))
+        const soreness = Number(form.get(`soreness-${muscleGroup}`))
+        if (!Number.isInteger(workingSets) || workingSets < 1 || workingSets > 30 || !Number.isInteger(soreness) || soreness < 0 || soreness > 10) {
+          setError('Enter 1–30 working sets and a soreness rating from 0–10 for each selected muscle group.')
+          return
+        }
+        muscleDetails.push({ muscleGroup, workingSets, soreness })
+      }
+      const liftName = String(form.get('trackedLift') ?? '').trim()
+      const liftMuscleGroup = String(form.get('liftMuscleGroup') ?? '')
+      const topSetWeightKg = String(form.get('topSetWeightKg') ?? '')
+      const topSetReps = String(form.get('topSetReps') ?? '')
+      if (liftName || topSetWeightKg || topSetReps) {
+        if (!liftName || !topSetWeightKg || !topSetReps || !selectedMuscles.includes(liftMuscleGroup as MuscleGroup)) {
+          setError('For strength history, select a tracked muscle and enter its lift, top-set weight, and reps together.')
+          return
+        }
+        const weight = Number(topSetWeightKg)
+        const reps = Number(topSetReps)
+        if (!Number.isFinite(weight) || weight <= 0 || weight > 2000 || !Number.isInteger(reps) || reps < 1 || reps > 12) {
+          setError('Enter a positive top-set weight and 1–12 reps for the tracked lift.')
+          return
+        }
+        const muscleDetail = muscleDetails.find((detail) => detail.muscleGroup === liftMuscleGroup)
+        if (muscleDetail) Object.assign(muscleDetail, { liftName, topSetWeightKg: weight, topSetReps: reps })
+      }
+      onWorkout({ title, focus: String(form.get('focus') || 'Full body'), duration, volume, muscleDetails })
     } else {
       const weight = Number(form.get('weight'))
       if (!Number.isFinite(weight) || weight < 20 || weight > 350) { setError('Enter a bodyweight between 20 and 350 kg.'); return }
@@ -825,7 +1055,7 @@ function EntryModal({ type, onClose, onWorkout, onWeight }: {
   }
   return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="entry-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-heading"><div><span className="card-overline">YOUR PROGRESS</span><h2 id="modal-title">{titles[type]}</h2></div><button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={19} /></button></div>
     <form onSubmit={handleSubmit}>
-      {type === 'workout' && <><label>Workout name<input name="title" placeholder="e.g. Upper body strength" autoFocus /></label><label>Focus areas<input name="focus" placeholder="e.g. Chest · Back · Shoulders" /></label><div className="form-grid"><label>Duration <span>minutes</span><input name="duration" type="number" min="1" defaultValue="45" /></label><label>Session volume <span>kg</span><input name="volume" type="number" min="0" defaultValue="0" /></label></div></>}
+      {type === 'workout' && <><label>Workout name<input name="title" placeholder="e.g. Upper body strength" autoFocus /></label><label>Focus areas<input name="focus" placeholder="e.g. Chest · Back · Shoulders" /></label><div className="form-grid"><label>Duration <span>minutes</span><input name="duration" type="number" min="1" defaultValue="45" /></label><label>Session volume <span>kg total</span><input name="volume" type="number" min="0" max="100000" step="1" defaultValue="0" /></label></div><div className="muscle-log-section"><div><strong>Muscle groups & recovery</strong><span>Choose each muscle you worked and log its direct working sets.</span></div><div className="muscle-log-grid">{MUSCLE_GROUPS.map(({ id, label }) => <div className="muscle-log-row" key={id}><label><input name="muscleGroup" type="checkbox" value={id} /><span>{label}</span></label><label>Sets<input name={`sets-${id}`} type="number" min="1" max="30" defaultValue="3" /></label><label>Soreness<input name={`soreness-${id}`} type="number" min="0" max="10" defaultValue="0" /></label></div>)}</div><span className="muscle-log-hint">Soreness is your current self-rating (0 = none, 10 = severe). Leave an untrained muscle unchecked.</span></div><div className="strength-log-section"><div><strong>Track one lift (optional)</strong><span>Use the same lift name each time to compare estimated strength.</span></div><label>Muscle group<select name="liftMuscleGroup" defaultValue="CHEST">{MUSCLE_GROUPS.map(({ id, label }) => <option key={id} value={id}>{label}</option>)}</select></label><label>Lift name<input name="trackedLift" placeholder="e.g. Bench press" /></label><div className="form-grid"><label>Top set weight <span>kg</span><input name="topSetWeightKg" type="number" min="0.1" max="2000" step="0.5" /></label><label>Top set reps <span>1–12 for strength estimate</span><input name="topSetReps" type="number" min="1" max="12" step="1" /></label></div></div></>}
       {type === 'weight' && <><p className="modal-description">Use a similar time of day for more useful comparisons. Daily weight naturally fluctuates.</p><label>Bodyweight <span>kg</span><input name="weight" type="number" min="20" max="350" step="0.1" placeholder="e.g. 72.4" autoFocus /></label></>}
       {error && <div className="form-error" role="alert">{error}</div>}
       <div className="modal-actions"><button type="button" className="cancel-button" onClick={onClose}>Cancel</button><button type="submit" className="primary-button"><Check size={15} /> Save entry</button></div>
@@ -833,31 +1063,64 @@ function EntryModal({ type, onClose, onWorkout, onWeight }: {
   </section></div>
 }
 
-function AccountModal({ onClose, onSubmit }: {
-  onClose: () => void
-  onSubmit: (mode: 'login' | 'register', input: { name?: string; email: string; password: string }) => void
+function AuthLoading() {
+  return <main className="auth-page"><section className="auth-loading" role="status"><div className="brand-mark"><Activity size={20} strokeWidth={2.5} /></div><strong>Checking your secure session…</strong><span>Just a moment while we connect your account.</span></section></main>
+}
+
+function AuthScreen({ initialError, onSubmit }: {
+  initialError: string
+  onSubmit: (mode: 'login' | 'register', input: { name?: string; email: string; password: string }) => Promise<string | null>
 }) {
   const [mode, setMode] = useState<'login' | 'register'>('login')
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  const [error, setError] = useState(initialError)
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (submitting) return
     const fields = new FormData(event.currentTarget)
-    onSubmit(mode, {
-      name: String(fields.get('name') ?? '').trim() || undefined,
-      email: String(fields.get('email') ?? '').trim(),
-      password: String(fields.get('password') ?? ''),
-    })
+    setError('')
+    setSubmitting(true)
+    try {
+      const message = await onSubmit(mode, {
+        name: String(fields.get('name') ?? '').trim() || undefined,
+        email: String(fields.get('email') ?? '').trim(),
+        password: String(fields.get('password') ?? ''),
+      })
+      if (message) setError(message)
+    } finally {
+      setSubmitting(false)
+    }
   }
-  return <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="entry-modal account-modal" role="dialog" aria-modal="true" aria-labelledby="account-modal-title"><div className="modal-heading"><div><span className="card-overline">YOUR FITNESS, YOUR SPACE</span><h2 id="account-modal-title">{mode === 'login' ? 'Welcome back' : 'Create your account'}</h2></div><button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={19} /></button></div>
-    <p className="modal-description">Connect to save your fitness records securely in your FitTrack account.</p>
-    <form onSubmit={handleSubmit}>
-      {mode === 'register' && <label>Your name<input name="name" placeholder="How should we greet you?" minLength={1} maxLength={80} required /></label>}
-      <label>Email address<input name="email" type="email" placeholder="you@example.com" autoComplete="email" required /></label>
-      <label>Password<input name="password" type="password" placeholder="At least 8 characters" minLength={8} maxLength={72} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required /></label>
-      <div className="modal-actions"><button type="button" className="cancel-button" onClick={onClose}>Cancel</button><button type="submit" className="primary-button">{mode === 'login' ? 'Sign in' : 'Create account'} <ArrowRight size={15} /></button></div>
-    </form>
-    <div className="account-switch">{mode === 'login' ? 'New to FitTrack Pro?' : 'Already have an account?'} <button onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>{mode === 'login' ? 'Create an account' : 'Sign in'}</button></div>
-    <div className="account-security"><Check size={13} /> Passwords are hashed and account data is private.</div>
-  </section></div>
+
+  return <main className="auth-page">
+    <section className="auth-card">
+      <div className="auth-showcase">
+        <div className="brand-lockup auth-brand"><div className="brand-mark"><Activity size={20} strokeWidth={2.5} /></div><span>fittrack<span className="brand-pro">pro</span></span></div>
+        <div className="auth-showcase-copy"><span className="auth-kicker"><span /> YOUR WELLNESS, IN FOCUS</span><h1>Build a stronger picture of your progress.</h1><p>Your training, nutrition, and recovery insights—all in one private workspace.</p></div>
+        <div className="auth-feature"><span><Check size={15} /></span><div><strong>Made for your real routine</strong><p>Thoughtful tracking that fits your day.</p></div></div>
+        <div className="auth-decoration auth-decoration-one" /><div className="auth-decoration auth-decoration-two" />
+      </div>
+      <div className="auth-panel">
+        <span className="auth-panel-eyebrow">{mode === 'login' ? 'YOUR PERSONAL FITNESS SPACE' : 'START YOUR FITNESS JOURNEY'}</span>
+        <h2>{mode === 'login' ? 'Welcome back' : 'Create your account'}</h2>
+        <p className="auth-panel-subtitle">{mode === 'login' ? 'Sign in to continue to your progress.' : 'Create an account to save and track your progress.'}</p>
+        <div className="auth-mode-tabs" role="tablist" aria-label="Account action">
+          <button type="button" role="tab" aria-selected={mode === 'login'} className={mode === 'login' ? 'auth-mode-active' : ''} onClick={() => { setMode('login'); setError('') }}>Sign in</button>
+          <button type="button" role="tab" aria-selected={mode === 'register'} className={mode === 'register' ? 'auth-mode-active' : ''} onClick={() => { setMode('register'); setError('') }}>Create account</button>
+        </div>
+        <form className="auth-form" onSubmit={(event) => { void handleSubmit(event) }}>
+          {mode === 'register' && <label>Full name<input name="name" placeholder="How should we greet you?" minLength={1} maxLength={80} autoComplete="name" required /></label>}
+          <label>Email address<input name="email" type="email" placeholder="you@example.com" autoComplete="email" required /></label>
+          <label>Password<input name="password" type="password" placeholder={mode === 'login' ? 'Enter your password' : 'At least 8 characters'} minLength={mode === 'register' ? 8 : 1} maxLength={72} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required /></label>
+          {error && <div className="auth-error" role="alert">{error}</div>}
+          <button type="submit" className="auth-submit" disabled={submitting}>{submitting ? 'Please wait…' : mode === 'login' ? 'Sign in securely' : 'Create account'} {!submitting && <ArrowRight size={16} />}</button>
+        </form>
+        <div className="auth-security"><Check size={14} /><span>Your records are private and connected to your account.</span></div>
+        <div className="auth-footer"><span className="auth-footer-mark"><Activity size={13} /></span> FitTrack Pro <span>·</span> A little progress adds up.</div>
+      </div>
+    </section>
+  </main>
 }
 
 export default App

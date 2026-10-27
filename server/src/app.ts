@@ -25,6 +25,7 @@ const foodSearchLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 40, stand
 const router = Router()
 const emailSchema = z.string().trim().toLowerCase().email().max(254)
 const passwordSchema = z.string().min(8).max(72).refine((value) => Buffer.byteLength(value, 'utf8') <= 72, 'Password is too long')
+const muscleGroupSchema = z.enum(['CHEST', 'BACK', 'SHOULDERS', 'BICEPS', 'TRICEPS', 'QUADS', 'HAMSTRINGS', 'GLUTES', 'CALVES', 'CORE'])
 
 async function setSessionCookie(response: Response, userId: string) {
   const token = randomBytes(32).toString('base64url')
@@ -152,7 +153,7 @@ router.get('/dashboard', requireAuth, asyncRoute(async (request, response) => {
   const [profile, goal, workouts, meals, weights] = await Promise.all([
     prisma.profile.findUnique({ where: { userId } }),
     prisma.goal.findFirst({ where: { userId, active: true }, orderBy: { createdAt: 'desc' } }),
-    prisma.workout.findMany({ where: { userId }, orderBy: { startedAt: 'desc' }, take: 5, include: { sets: true } }),
+    prisma.workout.findMany({ where: { userId }, orderBy: { startedAt: 'desc' }, take: 100, include: { sets: true, muscleDetails: true } }),
     prisma.mealEntry.findMany({ where: { userId, eatenAt: { gte: startOfToday } }, orderBy: { eatenAt: 'asc' } }),
     prisma.weightLog.findMany({ where: { userId }, orderBy: { recordedAt: 'desc' }, take: 14 }),
   ])
@@ -164,7 +165,7 @@ router.get('/workouts', requireAuth, asyncRoute(async (request, response) => {
     where: { userId: request.userId! },
     orderBy: { startedAt: 'desc' },
     take: 100,
-    include: { sets: true },
+    include: { sets: true, muscleDetails: true },
   })
   response.json({ workouts })
 }))
@@ -183,6 +184,19 @@ router.post('/workouts', requireAuth, asyncRoute(async (request, response) => {
       reps: z.number().int().min(0).max(1000),
       weightKg: z.number().min(0).max(2000),
     })).max(200).optional(),
+    muscleDetails: z.array(z.object({
+      muscleGroup: muscleGroupSchema,
+      workingSets: z.number().int().min(1).max(30),
+      soreness: z.number().int().min(0).max(10),
+      liftName: z.string().trim().min(1).max(100).optional(),
+      topSetWeightKg: z.number().positive().max(2000).optional(),
+      topSetReps: z.number().int().min(1).max(12).optional(),
+    }).superRefine((detail, context) => {
+      const hasLiftData = [detail.liftName, detail.topSetWeightKg, detail.topSetReps].filter((value) => value !== undefined).length
+      if (hasLiftData !== 0 && hasLiftData !== 3) {
+        context.addIssue({ code: 'custom', message: 'Lift name, top set weight, and reps must be provided together' })
+      }
+    })).max(10).optional(),
   }).parse(request.body)
   const workout = await prisma.workout.create({
     data: {
@@ -194,8 +208,9 @@ router.post('/workouts', requireAuth, asyncRoute(async (request, response) => {
       notes: input.notes,
       startedAt: input.startedAt,
       sets: { create: input.sets ?? [] },
+      muscleDetails: { create: input.muscleDetails ?? [] },
     },
-    include: { sets: true },
+    include: { sets: true, muscleDetails: true },
   })
   response.status(201).json({ workout })
 }))

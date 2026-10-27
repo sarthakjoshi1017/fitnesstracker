@@ -96,8 +96,24 @@ model Workout {
   createdAt DateTime     @default(now())
   user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   sets      WorkoutSet[]
+  muscleDetails MuscleWorkoutDetail[]
 
   @@index([userId, startedAt])
+}
+
+model MuscleWorkoutDetail {
+  id                String   @id @default(uuid()) @db.Uuid
+  workoutId         String   @db.Uuid
+  muscleGroup       String   @db.VarChar(24)
+  workingSets       Int
+  soreness          Int
+  liftName          String?  @db.VarChar(100)
+  topSetWeightKg    Decimal? @db.Decimal(7, 2)
+  topSetReps        Int?
+  workout           Workout  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+
+  @@unique([workoutId, muscleGroup])
+  @@index([muscleGroup, workoutId])
 }
 
 model WorkoutSet {
