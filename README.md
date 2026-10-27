@@ -1,6 +1,6 @@
 # FitTrack Pro
 
-FitTrack Pro is a fitness and nutrition tracking app for people who want to understand their patterns, not just collect numbers. The product brings training, food logging, bodyweight trends, and explainable data-quality guidance into one responsive workspace.
+FitTrack Pro is a fitness and nutrition tracking app for people who want to understand their patterns, not just collect numbers. Its frontend and backend are separate npm workspaces: `frontend/` contains the React/Vite client, while `backend/` contains the Express API and PostgreSQL/Prisma layer.
 
 > **Authentication required:** Every app route requires a signed-in account. On startup, FitTrack Pro checks the server for an existing session; otherwise it shows the sign-in/create-account screen. Fitness records are loaded from PostgreSQL and scoped to the authenticated user.
 
@@ -24,6 +24,24 @@ FitTrack Pro is a fitness and nutrition tracking app for people who want to unde
 - Use rule-based backend helpers for session volume, Epley estimated 1RM, moving averages, starting calorie estimates, plateau checks, and data-quality summaries.
 
 An account with no records receives empty states. Signing out returns to the authentication screen; no dashboard or sample fitness data is shown while signed out.
+
+## Project structure
+
+```text
+frontend/
+  src/                    React application and client-side fitness rules
+  tests/                  Frontend and shared-logic tests
+  public/                 Static browser assets
+  package.json            Frontend dependencies and scripts
+backend/
+  src/                    Express API, authentication, and server logic
+  prisma/                 Database schema, migrations, and seed script
+  package.json            Backend dependencies and database scripts
+  .env                    Local backend and Vite configuration (not committed)
+package.json              Workspace commands for running both applications
+```
+
+Run `npm install` once at the repository root to install both workspace packages.
 
 ## Technology
 
@@ -58,7 +76,7 @@ Requirements: Node.js 20.19+ and PostgreSQL 14+.
 
 ```sh
 npm install
-cp .env.example .env
+cp backend/.env.example backend/.env
 ```
 
 For a local PostgreSQL server on macOS, install and start PostgreSQL, then create the app database:
@@ -69,7 +87,7 @@ brew services start postgresql@16
 createdb fittrack_pro
 ```
 
-Set `DATABASE_URL` to your PostgreSQL connection and set `SESSION_SECRET` to a private random value (generate one with `openssl rand -hex 32`) in `.env`. The `CLIENT_URL` and `VITE_API_URL` values must match the browser host you use (`localhost` or `127.0.0.1`). Then initialize and start the app:
+Set `DATABASE_URL` to your PostgreSQL connection and set `SESSION_SECRET` to a private random value (generate one with `openssl rand -hex 32`) in `backend/.env`. The `CLIENT_URL` and `VITE_API_URL` values must match the browser host you use (`localhost` or `127.0.0.1`). Then initialize and start the app:
 
 ```sh
 npm run db:generate
@@ -77,11 +95,11 @@ npm run db:migrate
 npm run dev:all
 ```
 
-The client starts at `http://localhost:5173`; the API listens on `http://localhost:3001`. The API and configured database are required to register or sign in. The client can be started separately with `npm run dev`, but it will remain at the authentication screen until the API is available.
+The client starts at `http://127.0.0.1:5173`; the API listens on `http://127.0.0.1:3001`. The API and configured database are required to register or sign in. The client can be started separately with `npm run dev`, but it will remain at the authentication screen until the API is available.
 
 ### Optional demo account seed
 
-Set `DEMO_EMAIL` and a private `DEMO_PASSWORD` of at least 8 characters in `.env`, then run `npm run db:seed`. The script creates missing demo records and does not reset existing demo-account credentials or duplicate the same starter records on subsequent runs.
+Set `DEMO_EMAIL` and a private `DEMO_PASSWORD` of at least 8 characters in `backend/.env`, then run `npm run db:seed`. The script creates missing demo records and does not reset existing demo-account credentials or duplicate the same starter records on subsequent runs.
 
 ## Environment variables
 
@@ -96,7 +114,7 @@ Set `DEMO_EMAIL` and a private `DEMO_PASSWORD` of at least 8 characters in `.env
 | `DEMO_PASSWORD` | Optional seed account password; never commit a real value |
 | `VITE_API_URL` | Optional client API base URL (default `http://localhost:3001/api`) |
 
-Keep `.env` private. Only `.env.example` belongs in source control.
+Keep `backend/.env` private. Only `backend/.env.example` belongs in source control.
 
 ## API overview
 
@@ -143,8 +161,8 @@ npm run lint
 
 ## Deployment notes
 
-Deploy the Vite build as a static site and the compiled API (`server/dist/index.js`) as a Node service with a managed PostgreSQL database. Configure `DATABASE_URL`, `SESSION_SECRET`, `CLIENT_URL`, `SERVER_PORT`, `NODE_ENV`, and `VITE_API_URL` in the respective hosting environments. Run `npm run db:generate` during the build and `npx prisma migrate deploy` as a release step. A public deployment and demo-video link can be added here once provisioned.
+Deploy the Vite build from `frontend/dist` as a static site and the compiled API (`backend/dist/index.js`) as a Node service with a managed PostgreSQL database. Configure `DATABASE_URL`, `SESSION_SECRET`, `CLIENT_URL`, `SERVER_PORT`, `NODE_ENV`, and `VITE_API_URL` in the respective hosting environments. Run `npm run db:generate` during the build and `npm run db:deploy` as a release step. A public deployment and demo-video link can be added here once provisioned.
 
 ## Scope and limitations
 
-This is a working end-term MVP, not a claim that every optional feature in the project brief is complete. It currently does not include password reset, refresh tokens, photo uploads, PDF reports, a full exercise-library/set-entry UI, meal saving, recovery journals, or calendar scheduling. Food search depends on the public Open Food Facts service and its available product data; it does not guarantee a match for every food. Insights emphasize data quality and consistency; the broader nutrition, plateau, and report calculations are not yet wired into dashboard recommendations. Demo-mode changes are browser-local; authenticated workout and muscle-history records use PostgreSQL.
+This is a working end-term MVP, not a claim that every optional feature in the project brief is complete. It currently does not include password reset, refresh tokens, photo uploads, PDF reports, a full exercise-library/set-entry UI, meal saving, recovery journals, or calendar scheduling. Food search depends on the public Open Food Facts service and its available product data; it does not guarantee a match for every food. Insights emphasize data quality and consistency; the broader nutrition, plateau, and report calculations are not yet wired into dashboard recommendations. Custom food definitions remain browser-local; authenticated workout and muscle-history records use PostgreSQL.
